@@ -1,16 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, CheckCircle2, XCircle, Info, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Clock, CheckCircle2, XCircle, Info, ArrowRight, ArrowLeft, Flag } from 'lucide-react';
 import { Question, QuizResult } from '../types';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../firebase';
 
 interface QuizProps {
   questions: Question[];
   mode: 'quiz' | 'exam';
   subjectId?: string;
+  chapterIndex?: number;
+  quizTitle?: string;
+  userEmail?: string;
   onComplete: (results: QuizResult[]) => void;
   onBack: () => void;
 }
 
-export default function Quiz({ questions, mode, subjectId, onComplete, onBack }: QuizProps) {
+export default function Quiz({ questions, mode, subjectId, chapterIndex, quizTitle, userEmail, onComplete, onBack }: QuizProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   
   // Quiz mode state
@@ -20,9 +25,20 @@ export default function Quiz({ questions, mode, subjectId, onComplete, onBack }:
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [showBackConfirm, setShowBackConfirm] = useState(false);
 
+  // Report state
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportDetails, setReportDetails] = useState('');
+  const [reportType, setReportType] = useState('Wrong Answer');
+  const [submittingReport, setSubmittingReport] = useState(false);
+  const [reportSuccess, setReportSuccess] = useState(false);
+
+
   // Exam mode state
   const calculateExamTime = () => {
     if (questions.length === 0) return 0;
+
+    if (subjectId === 'dcu_phys2' && chapterIndex === 0) return 30 * 60; // 30 mins
+    if (subjectId === 'dcu_phys2' && chapterIndex === 1) return 40 * 60; // 40 mins
 
     // specific topic lengths for chem1 to set exact minutes
     if (questions.length === 61 && subjectId === 'chem1') return 10 * 60; // 10 mins for Topic 9
@@ -43,6 +59,7 @@ export default function Quiz({ questions, mode, subjectId, onComplete, onBack }:
     if (questions.length === 27 && subjectId === 'dcu_phys') return 25 * 60;
     if (questions.length === 27) return 22 * 60;
     if (questions.length === 26 && subjectId === 'chem1') return 15 * 60;
+    if (questions.length === 25 && subjectId === 'dcu_phys') return 23 * 60;
     if (questions.length === 23 && subjectId === 'chem1') return 15 * 60;
     if (questions.length === 23 && subjectId === 'dcu_phys') return 20 * 60;
     return 25 * 60;
@@ -160,6 +177,39 @@ export default function Quiz({ questions, mode, subjectId, onComplete, onBack }:
     }
   };
 
+  const handleReportSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmittingReport(true);
+    try {
+      await addDoc(collection(db, 'reports'), {
+        quizId: subjectId || 'unknown_quiz',
+        chapterIndex: chapterIndex ?? -1,
+        topic: currentQuestion.topic || null,
+        quizTitle: quizTitle || 'Custom/Unknown Quiz',
+        questionIndex: currentIndex,
+        questionId: currentQuestion.id,
+        questionText: currentQuestion.question_text,
+        reportType,
+        issueDetails: reportDetails,
+        reportedBy: userEmail || 'Anonymous',
+        status: 'pending',
+        timestamp: serverTimestamp()
+      });
+      setReportSuccess(true);
+      setTimeout(() => {
+        setShowReportModal(false);
+        setReportSuccess(false);
+        setReportDetails('');
+        setReportType('Wrong Answer');
+      }, 2000);
+    } catch (err) {
+      console.error('Error submitting report:', err);
+      alert('Report could not be sent.');
+    } finally {
+      setSubmittingReport(false);
+    }
+  };
+
   if (!currentQuestion) return null;
 
   const formatTime = (seconds: number) => {
@@ -225,16 +275,28 @@ export default function Quiz({ questions, mode, subjectId, onComplete, onBack }:
           </div>
         )}
 
-        <div className="flex justify-between items-start mb-6">
-          <h2 className="text-xl md:text-2xl font-semibold text-white leading-relaxed flex-1 pr-4">
+        <div className="flex justify-between items-start mb-6 gap-4">
+          <h2 className="text-xl md:text-2xl font-semibold text-white leading-relaxed flex-1">
             {currentQuestion.question_text}
           </h2>
           
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-mono font-bold text-lg ${
-            isDangerTime ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-700 text-slate-300'
-          }`}>
-            <Clock className="w-5 h-5" />
-            {displayTime}
+          <div className="flex flex-col items-end gap-2 shrink-0">
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-mono font-bold text-lg ${
+              isDangerTime ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-700 text-slate-300'
+            }`}>
+              <Clock className="w-5 h-5" />
+              {displayTime}
+            </div>
+            {(mode === 'quiz' || mode === 'exam') && (
+              <button 
+                onClick={() => setShowReportModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-700/50 hover:bg-slate-700 text-slate-400 hover:text-rose-400 transition-colors border border-slate-600/50"
+                title="Report issue with this question"
+              >
+                <Flag className="w-4 h-4" />
+                <span>রিপোর্ট</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -362,6 +424,73 @@ export default function Quiz({ questions, mode, subjectId, onComplete, onBack }:
                 হ্যাঁ, ফিরে যান
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report Modal */}
+      {showReportModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-3xl p-6 md:p-8 max-w-md w-full border border-slate-700 shadow-2xl">
+            <h3 className="text-2xl font-bold text-white mb-2 flex items-center gap-2">
+              <Flag className="w-6 h-6 text-rose-400" />
+              সমস্যা রিপোর্ট করুন
+            </h3>
+            <p className="text-slate-400 mb-6 text-sm">
+              এই প্রশ্নে কি কোনো সমস্যা আছে? দয়া করে বিস্তারিত জানান, যাতে আমরা ঠিক করতে পারি।
+            </p>
+            
+            {reportSuccess ? (
+              <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 p-4 rounded-xl flex items-center gap-3">
+                <CheckCircle2 className="w-6 h-6 shrink-0" />
+                <p className="font-medium">আপনার রিপোর্ট জমা দেওয়া হয়েছে। ধন্যবাদ!</p>
+              </div>
+            ) : (
+              <form onSubmit={handleReportSubmit}>
+                <div className="mb-4">
+                  <label className="block text-slate-300 font-medium mb-2 text-sm text-left">সমস্যার ধরন</label>
+                  <select 
+                    value={reportType}
+                    onChange={(e) => setReportType(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-rose-500"
+                    required
+                  >
+                    <option value="Wrong Answer">উত্তর ভুল দেওয়া আছে</option>
+                    <option value="Typo / Spelling">বানান ভুল</option>
+                    <option value="Question is wrong">প্রশ্নটি অসম্পূর্ণ বা ভুল</option>
+                    <option value="Options are missing">সঠিক অপশন নেই</option>
+                    <option value="Other">অন্যান্য</option>
+                  </select>
+                </div>
+                
+                <div className="mb-6">
+                  <label className="block text-slate-300 font-medium mb-2 text-sm text-left">বিস্তারিত (ঐচ্ছিক)</label>
+                  <textarea 
+                    value={reportDetails}
+                    onChange={(e) => setReportDetails(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-rose-500 h-24 resize-none"
+                    placeholder="সমস্যাটি বিস্তারিত লিখুন..."
+                  />
+                </div>
+                
+                <div className="flex gap-4">
+                  <button
+                    type="button"
+                    onClick={() => { setShowReportModal(false); setReportDetails(''); }}
+                    className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 rounded-xl transition-colors"
+                  >
+                    বাতিল
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submittingReport}
+                    className="flex-1 bg-rose-500 hover:bg-rose-600 disabled:bg-rose-500/50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition-colors shadow-lg shadow-rose-500/20"
+                  >
+                    {submittingReport ? 'অপেক্ষা করুন...' : 'রিপোর্ট জমা দিন'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

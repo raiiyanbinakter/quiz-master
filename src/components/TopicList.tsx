@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, BookOpen, Layers, X, GraduationCap } from 'lucide-react';
+import { ArrowLeft, BookOpen, Layers, X, GraduationCap, Home, ChevronRight } from 'lucide-react';
 import { Subject, Question } from '../types';
 
 interface TopicListProps {
@@ -7,10 +7,11 @@ interface TopicListProps {
   chapterIndex: number;
   questions: Question[];
   onBack: () => void;
+  onGoHome: () => void;
   onSelectTopic: (topic: string | null, mode: 'quiz' | 'exam') => void;
 }
 
-export default function TopicList({ subject, chapterIndex, questions, onBack, onSelectTopic }: TopicListProps) {
+export default function TopicList({ subject, chapterIndex, questions, onBack, onGoHome, onSelectTopic }: TopicListProps) {
   const chapterName = subject.chapters[chapterIndex];
   
   // Extract unique topics
@@ -24,6 +25,19 @@ export default function TopicList({ subject, chapterIndex, questions, onBack, on
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
+      {/* Breadcrumbs */}
+      <div className="flex flex-wrap items-center gap-2 text-sm text-slate-400 mb-6 font-medium bg-slate-900/50 p-3 rounded-xl border border-slate-800 w-fit">
+        <button onClick={onGoHome} className="hover:text-white flex items-center gap-1.5 transition-colors">
+          <Home className="w-4 h-4" /> Home
+        </button>
+        <ChevronRight className="w-4 h-4 text-slate-600 shrink-0" />
+        <button onClick={onBack} className="hover:text-emerald-400 transition-colors truncate max-w-[150px] sm:max-w-[200px]">
+          {subject.name}
+        </button>
+        <ChevronRight className="w-4 h-4 text-slate-600 shrink-0" />
+        <span className="text-emerald-400">{chapterName}</span>
+      </div>
+
       {/* Header */}
       <div className="flex items-center gap-4 mb-8">
         <button 
@@ -34,7 +48,7 @@ export default function TopicList({ subject, chapterIndex, questions, onBack, on
         </button>
         <div>
           <h1 className="text-2xl font-bold text-white">{chapterName}</h1>
-          <p className="text-slate-400 text-sm">টপিক নির্বাচন করুন</p>
+          <p className="text-slate-400 text-sm">টপিক নির্বাচন করুন (Select Topic)</p>
         </div>
       </div>
 

@@ -5,7 +5,7 @@ export interface Question {
   options: string[];
   correct_answer: string;
   explanation: string;
-  time_limit: number;
+  time_limit?: number;
 }
 
 export interface ChapterData {
@@ -36,6 +36,11 @@ export interface QuizResult {
 }
 
 export interface QuizSummary {
+  quizName: string;
+  subjectId?: string;
+  chapterIndex?: number;
+  isGamified?: boolean;
+  assessmentType: 'quiz' | 'exam';
   totalQuestions: number;
   correctCount: number;
   wrongCount: number;
