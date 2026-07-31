@@ -14,7 +14,7 @@ export const syllabus: Subject[] = [
       '৮. টিস্যু ও টিস্যুতন্ত্র', '৯. উদ্ভিদ শারীরতত্ত্ব', '১০. উদ্ভিদ প্রজনন',
       '১১. জীবপ্রযুক্তি', '১২. জীবের পরিবেশ, বিস্তার ও সংরক্ষণ'
     ],
-    activeChapters: [0]
+    activeChapters: [0, 6]
   },
   {
     id: 'bio2',
@@ -169,17 +169,26 @@ export const syllabus: Subject[] = [
     icon: 'Zap',
     color: 'from-cyan-900/50 to-slate-800',
     category: 'DCU --- ICU Unit',
-    chapters: ['১. তাপগতিবিদ্যা এক্সাম', '২. স্থির তড়িৎ এক্সাম'],
-    activeChapters: [0, 1]
+    chapters: ['১. তাপগতিবিদ্যা এক্সাম', '২. স্থির তড়িৎ এক্সাম', '৩. চল তড়িৎ এক্সাম'],
+    activeChapters: [0, 1, 2]
   },
   {
-    id: 'dcu_chem',
-    name: 'রসায়ন (ICU)',
+    id: 'dcu_chem1',
+    name: 'রসায়ন ১ম পত্র (ICU)',
     icon: 'FlaskConical',
     color: 'from-purple-900/50 to-slate-800',
     category: 'DCU --- ICU Unit',
-    chapters: ['অধ্যায় সমূহ'],
-    activeChapters: []
+    chapters: ['গুণগত রসায়ন এক্সাম', 'মৌলের পর্যাবৃত্ত ধর্ম এক্সাম'],
+    activeChapters: [0, 1]
+  },
+  {
+    id: 'dcu_chem2',
+    name: 'রসায়ন ২য় পত্র (ICU)',
+    icon: 'Beaker',
+    color: 'from-fuchsia-900/50 to-slate-800',
+    category: 'DCU --- ICU Unit',
+    chapters: ['পরিবেশ রসায়ন এক্সাম'],
+    activeChapters: [0]
   },
   {
     id: 'dcu_math',

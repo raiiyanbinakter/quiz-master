@@ -305,13 +305,18 @@ export default function ProgressionMap({ subject, userData, onSelectChapter, onB
                   <div className="flex justify-between items-center">
                     <span>Status:</span>
                     <span className={`font-bold uppercase tracking-wider text-[10px] ${
-                      isDynamic && selectedNodeIndex < highestUnlockedIndex
+                      userData?.rescueChapters?.includes(`${subject.id}_${selectedNodeIndex}`)
+                        ? 'text-rose-400 animate-pulse'
+                        : isDynamic && selectedNodeIndex < highestUnlockedIndex
                         ? 'text-emerald-400'
                         : (isDynamic ? isChapterUnlocked(selectedNodeIndex) : subject.activeChapters.includes(selectedNodeIndex))
                         ? 'text-amber-400'
                         : 'text-slate-500'
                     }`}>
                       {(() => {
+                        if (userData?.rescueChapters?.includes(`${subject.id}_${selectedNodeIndex}`)) {
+                          return 'RESCUE NEEDED';
+                        }
                         const isUnlocked = isDynamic ? isChapterUnlocked(selectedNodeIndex) : subject.activeChapters.includes(selectedNodeIndex);
                         const isCompleted = isUnlocked && selectedNodeIndex < highestUnlockedIndex;
                         if (isCompleted) return 'COMPLETED / PASSED';
@@ -337,6 +342,17 @@ export default function ProgressionMap({ subject, userData, onSelectChapter, onB
                     </span>
                   </div>
                 </div>
+
+                {userData?.rescueChapters?.includes(`${subject.id}_${selectedNodeIndex}`) && (
+                  <div className="bg-rose-950/40 border border-rose-500/25 rounded-xl p-3.5 space-y-1.5 animate-in slide-in-from-top-1 duration-150">
+                    <h5 className="text-xs font-bold text-rose-400 flex items-center gap-1.5">
+                      <span>🚨</span> Rescue Mode Active!
+                    </h5>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      You scored less than 80% on this chapter level. Clear your doubts in the Doubt Arena, ask peer mentors, and then retry below!
+                    </p>
+                  </div>
+                )}
 
                 <div className="flex flex-col gap-2 mt-2">
                   <button

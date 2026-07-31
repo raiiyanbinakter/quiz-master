@@ -156,7 +156,7 @@ export default function CategoryPage({ category, syllabus, onSelectSubject, onBa
         <div className="flex flex-col space-y-6">
           <h2 className="text-slate-200 font-extrabold text-xl mb-2 flex items-center gap-2">
             <div className="w-2.5 h-6 bg-amber-500 rounded-full"></div>
-            অ্যাডমিশন সাব-ক্যাটাগরি নির্বাচন করুন
+            অ্যাডমিশন সাব-ক্যাটাগরি নির্বাচন করুন (Select Admission Sub-Category)
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <button
@@ -212,9 +212,9 @@ export default function CategoryPage({ category, syllabus, onSelectSubject, onBa
           ) : (
             <div className="text-center py-16 bg-slate-900/30 rounded-3xl border border-dashed border-slate-800/80">
               <GraduationCap className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-              <h3 className="text-lg font-bold text-white mb-1">কোর্সসমূহ খুব শীঘ্রই আসছে</h3>
-              <p className="text-slate-400 text-sm max-w-sm mx-auto">
-                আমাদের এডুকেশন প্যানেলে এই ক্যাটাগরিতে নতুন এক্সাম কোর্স তৈরির কাজ চলছে। দ্রুতই যুক্ত করা হবে!
+              <h3 className="text-lg font-bold text-white mb-1">কোর্সসমূহ খুব শীঘ্রই আসছে (Courses Coming Soon!)</h3>
+              <p className="text-slate-400 text-sm max-w-sm mx-auto leading-relaxed">
+                আমাদের এডুকেশন প্যানেলে এই ক্যাটাগরিতে নতুন এক্সাম কোর্স তৈরির কাজ চলছে। দ্রুতই যুক্ত করা হবে! (Our educators are preparing premium exam syllabi for this category. Stay tuned!)
               </p>
             </div>
           )}

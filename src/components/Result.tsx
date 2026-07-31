@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Trophy, CheckCircle2, XCircle, Clock, RotateCcw, Home, Info, ArrowLeft, Loader2, ChevronDown } from 'lucide-react';
-import { collection, addDoc, serverTimestamp, writeBatch, doc } from 'firebase/firestore';
+import { Trophy, CheckCircle2, XCircle, Clock, RotateCcw, Home, Info, ArrowLeft, Loader2, ChevronDown, Sparkles, MessageCircle, HeartHandshake, Flame, BookOpen, Layers } from 'lucide-react';
+import { collection, addDoc, serverTimestamp, writeBatch, doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { QuizSummary } from '../types';
+import { uiCopy } from '../content/uiCopy';
 
 interface ResultProps {
   summary: QuizSummary;
@@ -12,9 +13,10 @@ interface ResultProps {
   onGoHome: () => void;
   onBack: () => void;
   onShowLeaderboard: () => void;
+  onAskMentorHelp?: (subjectName?: string, chapterName?: string) => void;
 }
 
-export default function Result({ summary, user, userData, onRetry, onGoHome, onBack, onShowLeaderboard }: ResultProps) {
+export default function Result({ summary, user, userData, onRetry, onGoHome, onBack, onShowLeaderboard, onAskMentorHelp }: ResultProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [hasSaved, setHasSaved] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -35,6 +37,14 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
       saveScore();
     }
   }, [user]);
+
+  // Extract list of weak concepts from wrong results
+  const wrongQuestions = summary.results.filter(r => !r.isCorrect && !r.isSkipped);
+  const detectedWeakConcepts = Array.from(new Set(
+    wrongQuestions
+      .map(q => q.topic || 'General Concept')
+      .filter(t => t !== '')
+  ));
 
   const saveScore = async () => {
     setIsSaving(true);
@@ -62,6 +72,8 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
         
         // Progression Logic
         const passRate = summary.totalQuestions > 0 ? (summary.correctCount / summary.totalQuestions) : 0;
+        const currentScorePercent = Math.round(passRate * 100);
+
         if (summary.isGamified && passRate >= 0.8 && summary.subjectId && summary.chapterIndex !== undefined) {
            const nextChapterId = `${summary.subjectId}_${summary.chapterIndex + 1}`;
            const currentUnlocked = userData.unlockedChapters || [];
@@ -70,15 +82,64 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
              updates.coins = (userData.coins || 0) + Math.floor(summary.totalScore * (userData.isPro ? 2 : 1)) + 50;
              unlockedNewLevel = true;
            }
+        } else if (summary.isGamified && passRate < 0.8 && summary.subjectId && summary.chapterIndex !== undefined) {
+           // Save chapter under Rescue Path status
+           const chapterId = `${summary.subjectId}_${summary.chapterIndex}`;
+           const currentRescues = userData.rescueChapters || [];
+           if (!currentRescues.includes(chapterId)) {
+             updates.rescueChapters = [...currentRescues, chapterId];
+           }
         }
         
-        // Energy Mechanics & standard coins if not already updated by unocking
+        // Energy Mechanics & standard coins if not already updated by locking logic
         if (!updates.coins && summary.totalScore > 0) {
            updates.coins = (userData.coins || 0) + Math.floor(summary.totalScore * (userData.isPro ? 2 : 1));
         }
 
-        // Energy deducted at start, no duplicate deduction here
-        
+        // Save progress details to `chapterProgress`
+        if (summary.subjectId && summary.chapterIndex !== undefined) {
+          const progressDocId = `${user.uid}_${summary.subjectId}_${summary.chapterIndex}`;
+          const progressRef = doc(db, 'chapterProgress', progressDocId);
+          
+          let prevAttempts = 0;
+          let prevBest = 0;
+          try {
+            const progressSnap = await getDoc(progressRef);
+            if (progressSnap.exists()) {
+              const prevData = progressSnap.data();
+              prevAttempts = prevData.attemptsCount || 0;
+              prevBest = prevData.bestScore || 0;
+            }
+          } catch (err) {
+            console.warn("Could not load previous progress; starting from zero:", err);
+          }
+
+          batch.set(progressRef, {
+            userId: user.uid,
+            subjectId: summary.subjectId,
+            chapterIndex: summary.chapterIndex,
+            status: passRate >= 0.8 ? 'cleared' : 'rescue',
+            attemptsCount: prevAttempts + 1,
+            bestScore: Math.max(prevBest, summary.totalScore),
+            latestScore: summary.totalScore,
+            masteryScore: currentScorePercent,
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+        }
+
+        // Save weak concepts if score is below 80%
+        if (passRate < 0.8 && summary.subjectId && summary.chapterIndex !== undefined && detectedWeakConcepts.length > 0) {
+          const weakRef = doc(db, 'weakConcepts', `${user.uid}_${summary.subjectId}_${summary.chapterIndex}`);
+          batch.set(weakRef, {
+            userId: user.uid,
+            subjectId: summary.subjectId,
+            chapterIndex: summary.chapterIndex,
+            weakConceptIds: detectedWeakConcepts,
+            rescueMissionId: `rescue_${Date.now()}`,
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+        }
+
         if (Object.keys(updates).length > 0) {
           const userRef = doc(db, 'users', user.uid);
           batch.update(userRef, updates);
@@ -99,18 +160,23 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
       setIsSaving(false);
     }
   };
+
+  const passRate = summary.totalQuestions > 0 ? (summary.correctCount / summary.totalQuestions) : 0;
+
+  const isFailed = passRate < 0.8;
+
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
+    <div className="max-w-3xl mx-auto px-4 py-8 animate-in fade-in duration-300">
       {/* Header with Back Button */}
       <div className="flex items-center gap-4 mb-8">
         <button 
           onClick={onBack}
-          className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-white"
+          className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-white cursor-pointer"
         >
           <ArrowLeft className="w-6 h-6" />
         </button>
         <div>
-          <h1 className="text-2xl font-bold text-white">ফলাফল</h1>
+          <h1 className="text-2xl font-bold text-white">{uiCopy.result.title}</h1>
           <p className="text-slate-400 text-sm">আপনার পারফরম্যান্স দেখুন</p>
         </div>
       </div>
@@ -123,8 +189,8 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
           <Trophy className="w-10 h-10 text-emerald-400" />
         </div>
         
-        <h2 className="text-3xl font-bold text-white mb-2">কুইজ সম্পন্ন হয়েছে!</h2>
-        <p className="text-slate-400 mb-8">আপনার ফলাফল নিচে দেওয়া হলো</p>
+        <h2 className="text-3xl font-bold text-white mb-2">{isFailed ? 'কুইজ সম্পন্ন হয়েছে!' : uiCopy.result.celebration}</h2>
+        <p className="text-slate-400 mb-8">{uiCopy.result.scoreText}</p>
 
         <div className="flex justify-center items-end gap-2 mb-8">
           <span className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-emerald-200">
@@ -137,17 +203,17 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
           <div className="bg-slate-900/50 rounded-2xl p-4 border border-slate-700/50">
             <CheckCircle2 className="w-6 h-6 text-emerald-400 mx-auto mb-2" />
             <div className="text-2xl font-bold text-white mb-1">{summary.correctCount}</div>
-            <div className="text-sm text-slate-400">সঠিক</div>
+            <div className="text-sm text-slate-400">{uiCopy.result.correct}</div>
           </div>
           <div className="bg-slate-900/50 rounded-2xl p-4 border border-slate-700/50">
             <XCircle className="w-6 h-6 text-rose-400 mx-auto mb-2" />
             <div className="text-2xl font-bold text-white mb-1">{summary.wrongCount}</div>
-            <div className="text-sm text-slate-400">ভুল</div>
+            <div className="text-sm text-slate-400">{uiCopy.result.wrong}</div>
           </div>
           <div className="bg-slate-900/50 rounded-2xl p-4 border border-slate-700/50">
             <Clock className="w-6 h-6 text-slate-400 mx-auto mb-2" />
             <div className="text-2xl font-bold text-white mb-1">{summary.skippedCount}</div>
-            <div className="text-sm text-slate-400">স্কিপড</div>
+            <div className="text-sm text-slate-400">{uiCopy.result.skipped}</div>
           </div>
         </div>
 
@@ -156,18 +222,18 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
           {isSaving ? (
             <div className="flex items-center gap-2 text-emerald-400">
               <Loader2 className="w-5 h-5 animate-spin" />
-              <span>আপনার স্কোর সেভ করা হচ্ছে...</span>
+              <span>{uiCopy.result.savingScore}</span>
             </div>
           ) : hasSaved ? (
             <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 flex flex-col items-center justify-center w-full">
               <CheckCircle2 className="w-8 h-8 text-emerald-400 mb-2" />
-              <p className="text-emerald-400 font-medium mb-3">আপনার স্কোর লিডারবোর্ডে সেভ হয়েছে!</p>
+              <p className="text-emerald-400 font-medium mb-3">{uiCopy.result.savedSuccess}</p>
               <button
                 onClick={onShowLeaderboard}
-                className="bg-slate-700 hover:bg-slate-600 text-white font-medium py-2 px-6 rounded-lg transition-colors flex items-center gap-2"
+                className="bg-slate-700 hover:bg-slate-600 text-white font-medium py-2 px-6 rounded-lg transition-colors flex items-center gap-2 cursor-pointer"
               >
                 <Trophy className="w-4 h-4 text-amber-400" />
-                লিডারবোর্ড দেখুন
+                {uiCopy.result.viewLeaderboard}
               </button>
             </div>
           ) : errorMsg ? (
@@ -179,21 +245,90 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
         </div>
       </div>
 
+      {/* Dynamic Rescue Mission Card if Failed */}
+      {isFailed && (
+        <div className="bg-gradient-to-br from-slate-900 via-[#1C1625] to-[#25121B] border border-rose-500/30 rounded-3xl p-6 md:p-8 mb-8 relative overflow-hidden shadow-2xl animate-in fade-in duration-300">
+          <div className="absolute top-0 right-0 w-48 h-48 bg-rose-500/5 rounded-full blur-3xl pointer-events-none" />
+          
+          <h3 className="text-xl sm:text-2xl font-black text-rose-400 mb-3 flex items-center gap-2.5">
+            <HeartHandshake className="w-6 h-6 text-rose-400 animate-pulse" />
+            {uiCopy.result.rescueTitle}
+          </h3>
+          
+          <p className="text-slate-300 text-sm leading-relaxed mb-6">
+            {uiCopy.result.rescueDesc}
+          </p>
+
+          {/* Weak Concepts List */}
+          {detectedWeakConcepts.length > 0 && (
+            <div className="mb-6 bg-slate-950/40 border border-slate-800 rounded-2xl p-5 space-y-3">
+              <h4 className="text-xs font-mono uppercase tracking-wider text-rose-300 flex items-center gap-2">
+                <Flame className="w-4 h-4 text-orange-400" />
+                চিহ্নিত দুর্বল টপিকসমূহ (Weak Concepts Detected):
+              </h4>
+              <div className="flex flex-wrap gap-2">
+                {detectedWeakConcepts.map((concept, idx) => (
+                  <span key={idx} className="bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-300 text-[11px] font-bold px-3 py-1.5 rounded-full transition-all">
+                    {concept}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-4 mb-8 text-xs sm:text-sm text-slate-300">
+            <div className="flex items-start gap-3 bg-slate-900/60 p-4 rounded-xl border border-slate-800">
+              <Layers className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-slate-200 block mb-0.5">টপিক-ভিত্তিক সমাধান এবং ব্যাখ্যা (Topic Analysis)</span>
+                <span>{uiCopy.result.rescueWeakConcepts}</span>
+              </div>
+            </div>
+            
+            <div className="flex items-start gap-3 bg-slate-900/60 p-4 rounded-xl border border-slate-800">
+              <MessageCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-slate-200 block mb-0.5">মেন্টর ও বন্ধুদের সাথে আলোচনা (Community Help)</span>
+                <span>{uiCopy.result.rescueAskDoubt}</span>
+              </div>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <button
+              onClick={() => onAskMentorHelp?.(summary.quizName)}
+              className="w-full bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white font-black text-sm py-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-rose-500/10 cursor-pointer"
+            >
+              <MessageCircle className="w-4.5 h-4.5" />
+              {uiCopy.result.rescueOptionBtn}
+            </button>
+            
+            <button
+              onClick={onRetry}
+              className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-sm py-4 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer"
+            >
+              <RotateCcw className="w-4.5 h-4.5 text-rose-400" />
+              আবার পরীক্ষা দিন (Retry Mission)
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Actions */}
       <div className="flex gap-4 mb-12">
         <button
           onClick={onRetry}
-          className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold py-4 rounded-2xl transition-colors flex items-center justify-center gap-2"
+          className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold py-4 rounded-2xl transition-colors flex items-center justify-center gap-2 cursor-pointer"
         >
           <RotateCcw className="w-5 h-5" />
-          পুনরায় চেষ্টা করুন
+          {uiCopy.result.retryBtn}
         </button>
         <button
           onClick={onGoHome}
-          className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-4 rounded-2xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
+          className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-4 rounded-2xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 cursor-pointer"
         >
           <Home className="w-5 h-5" />
-          হোম পেজ
+          {uiCopy.result.goHomeBtn}
         </button>
       </div>
 
@@ -201,12 +336,12 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
       <div>
         <div className="flex items-center gap-3 mb-6">
           <div className="w-1.5 h-6 bg-blue-500 rounded-full"></div>
-          <h3 className="text-xl font-bold text-white">উত্তরমালা পর্যালোচনা</h3>
+          <h3 className="text-xl font-bold text-white">{uiCopy.result.reviewSection}</h3>
         </div>
 
         <div className="space-y-6">
           {summary.results.map((result, index) => (
-            <div key={index} className="bg-slate-800 rounded-2xl p-6 border border-slate-700">
+            <div key={index} className="bg-slate-800 rounded-2xl p-6 border border-slate-700 animate-in fade-in duration-200">
               <div className="flex gap-4 mb-4">
                 <div className="w-8 h-8 shrink-0 bg-slate-700 rounded-full flex items-center justify-center text-slate-300 font-bold">
                   {index + 1}
@@ -244,7 +379,7 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
                   <div className="mt-2">
                     <button 
                       onClick={() => toggleExplanation(index)}
-                      className={`flex items-center gap-2 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors border ${!result.isCorrect && !result.isSkipped ? 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20' : 'bg-slate-700/50 text-slate-300 border-slate-600 hover:bg-slate-700'}`}
+                      className={`flex items-center gap-2 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors border ${!result.isCorrect && !result.isSkipped ? 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20' : 'bg-slate-700/50 text-slate-300 border-slate-600 hover:bg-slate-700'} cursor-pointer`}
                     >
                       <Info className="w-4 h-4" />
                       {!result.isCorrect && !result.isSkipped ? 'View Explanation (Wrong Answer)' : 'View Explanation'}
@@ -255,7 +390,7 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
                       <div className="bg-slate-900/80 rounded-xl p-4 border border-slate-700/50 mt-3 animate-in slide-in-from-top-2 duration-200">
                         <div className="flex items-start gap-2">
                           <p className="text-sm text-slate-300 leading-relaxed">
-                            <span className="font-semibold text-blue-400">ব্যাখ্যা: </span>
+                            <span className="font-semibold text-blue-400">{uiCopy.result.explanation}: </span>
                             {result.explanation}
                           </p>
                         </div>
@@ -276,12 +411,12 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
             <Trophy className="w-20 h-20 text-yellow-400 mx-auto mb-6 animate-bounce" />
             <h2 className="text-3xl font-black text-white mb-2 tracking-tight">LEVEL UNLOCKED! 🎉</h2>
             <p className="text-slate-300 mb-6 font-medium">You passed the level and unlocked the next chapter!</p>
-            <div className="bg-slate-900/50 rounded-2xl p-4 border border-slate-700/50 mb-8 inline-block">
+            <div className="bg-slate-900/50 rounded-2xl p-4 border border-slate-700/50 mb-8 inline-block shadow-lg">
                <span className="text-2xl font-bold text-yellow-400">+50 Bonus Coins!</span>
             </div>
             <button
                onClick={() => setShowUnlockModal(false)}
-               className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-4 rounded-2xl transition-colors shadow-lg shadow-emerald-500/20"
+               className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-4 rounded-2xl transition-colors shadow-lg shadow-emerald-500/20 cursor-pointer"
             >
                Awesome! Let's Go
             </button>

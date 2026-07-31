@@ -21,6 +21,7 @@ import CategoryPage from './components/CategoryPage';
 import { syllabus as staticSyllabus } from './data/syllabus';
 import { sampleChapterData } from './data/questions';
 import { bio1Chap1Data } from './data/questions_bio1_chap1';
+import { bio1Chap7Data } from './data/questions_bio1_chap7';
 import { phy1Chap2Data } from './data/questions_phy1_chap2';
 import { chem1Chap2Data } from './data/questions_chem1_chap2';
 import { gstMathExam1Data } from './data/questions_gst_math_exam1';
@@ -37,6 +38,10 @@ import { dcuPhysicsPeriodicData } from './data/questions_dcu_physics_periodic';
 import { dcuPhysicsIdealGasData } from './data/questions_dcu_physics_ideal_gas';
 import { dcuPhysicsThermodynamicsData } from './data/questions_dcu_physics_thermodynamics';
 import { dcuPhysicsElectrostaticsData } from './data/questions_dcu_physics_electrostatics';
+import { dcuPhysicsCurrentElectricityData } from './data/questions_dcu_physics_current_electricity';
+import { dcuChemQualitativeData } from './data/questions_dcu_chem_qualitative';
+import { dcuChemPeriodicPropertiesData } from './data/questions_dcu_chem_periodic_properties';
+import { dcuChemEnvironmentalData } from './data/questions_dcu_chem_environmental';
 import { Subject, QuizResult, QuizSummary } from './types';
 import { ADMIN_EMAIL } from './constants';
 
@@ -119,6 +124,43 @@ export default function App() {
               needsUpdate = true;
             }
 
+            if (data.dailyMissions === undefined || data.lastMissionsResetDate !== today) {
+              data.dailyMissions = [
+                {
+                  id: 'mcq_correct',
+                  title: 'Correct 5 MCQs',
+                  banglaTitle: '৫টি প্রশ্নের সঠিক উত্তর দিন',
+                  target: 5,
+                  current: 0,
+                  reward: 30,
+                  isCompleted: false,
+                  isClaimed: false
+                },
+                {
+                  id: 'upvote_doubt',
+                  title: 'Upvote 2 doubts',
+                  banglaTitle: 'ডাউট এরিনায় ২টি উত্তর আপভোট করুন',
+                  target: 2,
+                  current: 0,
+                  reward: 20,
+                  isCompleted: false,
+                  isClaimed: false
+                },
+                {
+                  id: 'post_doubt',
+                  title: 'Post 1 doubt',
+                  banglaTitle: 'ডাউট এরিনায় ১টি প্রশ্ন পোস্ট করুন',
+                  target: 1,
+                  current: 0,
+                  reward: 15,
+                  isCompleted: false,
+                  isClaimed: false
+                }
+              ];
+              data.lastMissionsResetDate = today;
+              needsUpdate = true;
+            }
+
             // Energy Regeneration Logic
             if (!data.isPro && data.energy < 5 && data.lastEnergyUpdate) {
               const timePassedMs = Date.now() - data.lastEnergyUpdate;
@@ -148,13 +190,16 @@ export default function App() {
                 lastEnergyUpdate: data.lastEnergyUpdate,
                 purchasedItems: data.purchasedItems,
                 equippedAvatar: data.equippedAvatar,
-                equippedBorder: data.equippedBorder
+                equippedBorder: data.equippedBorder,
+                dailyMissions: data.dailyMissions,
+                lastMissionsResetDate: data.lastMissionsResetDate
               }, { merge: true });
             }
             setUserData(data);
           } else {
             // Check if admin email and set role accordingly, fixing legacy missing users
             const defaultRole = currentUser.email === ADMIN_EMAIL ? 'admin' : 'user';
+            const today = new Date().toISOString().split('T')[0];
             const newUserData = {
               uid: currentUser.uid,
               email: currentUser.email,
@@ -166,11 +211,44 @@ export default function App() {
               reputation: 0,
               isPro: false,
               currentStreak: 0,
-              lastActiveDate: new Date().toISOString().split('T')[0],
+              lastActiveDate: today,
               lastEnergyUpdate: Date.now(),
               purchasedItems: ["avatar_default"],
               equippedAvatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix",
               equippedBorder: "none",
+              dailyMissions: [
+                {
+                  id: 'mcq_correct',
+                  title: 'Correct 5 MCQs',
+                  banglaTitle: '৫টি প্রশ্নের সঠিক উত্তর দিন',
+                  target: 5,
+                  current: 0,
+                  reward: 30,
+                  isCompleted: false,
+                  isClaimed: false
+                },
+                {
+                  id: 'upvote_doubt',
+                  title: 'Upvote 2 doubts',
+                  banglaTitle: 'ডাউট এরিনায় ২টি উত্তর আপভোট করুন',
+                  target: 2,
+                  current: 0,
+                  reward: 20,
+                  isCompleted: false,
+                  isClaimed: false
+                },
+                {
+                  id: 'post_doubt',
+                  title: 'Post 1 doubt',
+                  banglaTitle: 'ডাউট এরিনায় ১টি প্রশ্ন পোস্ট করুন',
+                  target: 1,
+                  current: 0,
+                  reward: 15,
+                  isCompleted: false,
+                  isClaimed: false
+                }
+              ],
+              lastMissionsResetDate: today,
               createdAt: serverTimestamp()
             };
             await setDoc(userDocRef, newUserData);
@@ -354,11 +432,128 @@ export default function App() {
       totalScore,
       results
     });
+
+    if (correctCount > 0) {
+      updateMissionProgress('mcq_correct', correctCount).catch(console.error);
+    }
+
     setCurrentView('result');
   };
 
   const handleRetry = () => {
     setCurrentView('quiz');
+  };
+
+  const updateMissionProgress = async (missionId: string, incrementValue: number) => {
+    if (!user || !userData || !userData.dailyMissions) return;
+
+    const today = new Date().toISOString().split('T')[0];
+    let updatedMissions = [...userData.dailyMissions];
+    let needsUpdate = false;
+
+    if (userData.lastMissionsResetDate !== today) {
+      updatedMissions = [
+        {
+          id: 'mcq_correct',
+          title: 'Correct 5 MCQs',
+          banglaTitle: '৫টি প্রশ্নের সঠিক উত্তর দিন',
+          target: 5,
+          current: 0,
+          reward: 30,
+          isCompleted: false,
+          isClaimed: false
+        },
+        {
+          id: 'upvote_doubt',
+          title: 'Upvote 2 doubts',
+          banglaTitle: 'ডাউট এরিনায় ২টি উত্তর আপভোট করুন',
+          target: 2,
+          current: 0,
+          reward: 20,
+          isCompleted: false,
+          isClaimed: false
+        },
+        {
+          id: 'post_doubt',
+          title: 'Post 1 doubt',
+          banglaTitle: 'ডাউট এরিনায় ১টি প্রশ্ন পোস্ট করুন',
+          target: 1,
+          current: 0,
+          reward: 15,
+          isCompleted: false,
+          isClaimed: false
+        }
+      ];
+      needsUpdate = true;
+    }
+
+    updatedMissions = updatedMissions.map((mission: any) => {
+      if (mission.id === missionId && !mission.isCompleted) {
+        const newCurrent = Math.min(mission.target, mission.current + incrementValue);
+        const isCompleted = newCurrent >= mission.target;
+        needsUpdate = true;
+        return {
+          ...mission,
+          current: newCurrent,
+          isCompleted
+        };
+      }
+      return mission;
+    });
+
+    if (needsUpdate) {
+      const updatedData = {
+        ...userData,
+        dailyMissions: updatedMissions,
+        lastMissionsResetDate: today
+      };
+      setUserData(updatedData);
+
+      try {
+        const userRef = doc(db, 'users', user.uid);
+        await setDoc(userRef, {
+          dailyMissions: updatedMissions,
+          lastMissionsResetDate: today
+        }, { merge: true });
+      } catch (err) {
+        console.error("Error updating daily missions in Firestore", err);
+      }
+    }
+  };
+
+  const claimMissionReward = async (missionId: string) => {
+    if (!user || !userData || !userData.dailyMissions) return;
+
+    let rewardCoins = 0;
+    const updatedMissions = userData.dailyMissions.map((mission: any) => {
+      if (mission.id === missionId && mission.isCompleted && !mission.isClaimed) {
+        rewardCoins = mission.reward;
+        return {
+          ...mission,
+          isClaimed: true
+        };
+      }
+      return mission;
+    });
+
+    if (rewardCoins > 0) {
+      const updatedData = {
+        ...userData,
+        coins: (userData.coins || 0) + rewardCoins,
+        dailyMissions: updatedMissions
+      };
+      setUserData(updatedData);
+
+      try {
+        const userRef = doc(db, 'users', user.uid);
+        await setDoc(userRef, {
+          coins: updatedData.coins,
+          dailyMissions: updatedMissions
+        }, { merge: true });
+      } catch (err) {
+        console.error("Error claiming mission reward", err);
+      }
+    }
   };
 
   const handleGoHome = () => {
@@ -398,6 +593,8 @@ export default function App() {
 
     if (selectedSubject?.id === 'bio1' && selectedChapterIndex === 0) {
       questions = bio1Chap1Data.questions;
+    } else if (selectedSubject?.id === 'bio1' && selectedChapterIndex === 6) {
+      questions = bio1Chap7Data.questions;
     } else if (selectedSubject?.id === 'bio2' && selectedChapterIndex === 0) {
       questions = sampleChapterData.questions;
     } else if (selectedSubject?.id === 'phys1' && selectedChapterIndex === 1) {
@@ -432,6 +629,14 @@ export default function App() {
       questions = dcuPhysicsThermodynamicsData.questions;
     } else if (selectedSubject?.id === 'dcu_phys2' && selectedChapterIndex === 1) {
       questions = dcuPhysicsElectrostaticsData.questions;
+    } else if (selectedSubject?.id === 'dcu_phys2' && selectedChapterIndex === 2) {
+      questions = dcuPhysicsCurrentElectricityData.questions;
+    } else if (selectedSubject?.id === 'dcu_chem1' && selectedChapterIndex === 0) {
+      questions = dcuChemQualitativeData.questions;
+    } else if (selectedSubject?.id === 'dcu_chem1' && selectedChapterIndex === 1) {
+      questions = dcuChemPeriodicPropertiesData.questions;
+    } else if (selectedSubject?.id === 'dcu_chem2' && selectedChapterIndex === 0) {
+      questions = dcuChemEnvironmentalData.questions;
     }
 
     // Apply Overrides globally to all questions found
@@ -486,6 +691,8 @@ export default function App() {
             }} 
             onShowLeaderboard={handleShowLeaderboard} 
             onShowShop={() => setCurrentView('shop')} 
+            userData={userData}
+            onClaimReward={claimMissionReward}
           />
         )}
 
@@ -567,6 +774,7 @@ export default function App() {
             onGoHome={handleGoHome}
             onBack={() => setCurrentView('topics')}
             onShowLeaderboard={handleShowLeaderboard}
+            onAskMentorHelp={() => setCurrentView('doubt-arena')}
           />
         )}
 
@@ -599,7 +807,16 @@ export default function App() {
         )}
 
         {currentView === 'doubt-arena' && (
-          <DoubtArena user={user} userData={userData} onBack={handleGoHome} setUserData={setUserData} syllabus={syllabus} />
+          <DoubtArena 
+            user={user} 
+            userData={userData} 
+            onBack={handleGoHome} 
+            setUserData={setUserData} 
+            syllabus={syllabus} 
+            initialSubject={selectedSubject?.name}
+            initialChapter={selectedChapterIndex !== null && selectedSubject ? selectedSubject.chapters[selectedChapterIndex] : undefined}
+            onUpdateMissionProgress={updateMissionProgress}
+          />
         )}
       </main>
     </div>

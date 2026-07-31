@@ -63,8 +63,8 @@ export default function TopicList({ subject, chapterIndex, questions, onBack, on
               <Layers className="w-5 h-5" />
             </div>
             <div>
-              <span className="font-medium text-lg text-slate-200">সম্পূর্ণ অধ্যায়</span>
-              <p className="text-sm text-slate-400">{questions.length} টি প্রশ্ন</p>
+              <span className="font-medium text-lg text-slate-200">সম্পূর্ণ অধ্যায় (Full Chapter)</span>
+              <p className="text-sm text-slate-400">{questions.length} টি প্রশ্ন ({questions.length} Questions)</p>
             </div>
           </div>
         </button>
@@ -83,7 +83,7 @@ export default function TopicList({ subject, chapterIndex, questions, onBack, on
                 </div>
                 <div>
                   <span className="font-medium text-lg text-slate-200">{topic}</span>
-                  <p className="text-sm text-slate-400">{topicQuestions.length} টি প্রশ্ন</p>
+                  <p className="text-sm text-slate-400">{topicQuestions.length} টি প্রশ্ন ({topicQuestions.length} Questions)</p>
                 </div>
               </div>
             </button>
@@ -97,13 +97,13 @@ export default function TopicList({ subject, chapterIndex, questions, onBack, on
           <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl relative animate-in zoom-in-95">
             <button 
               onClick={() => setSelectedTopicForMode(undefined)}
-              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-full transition-colors"
+              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-full transition-colors cursor-pointer"
             >
               <X className="w-6 h-6" />
             </button>
             
-            <h2 className="text-2xl font-bold text-white mb-2">মোড নির্বাচন করুন</h2>
-            <p className="text-slate-400 mb-8">আপনি কীভাবে এই টপিকটি অনুশীলন করতে চান?</p>
+            <h2 className="text-2xl font-bold text-white mb-2">মোড নির্বাচন করুন (Select Mode)</h2>
+            <p className="text-slate-400 mb-8 text-sm leading-relaxed">আপনি কীভাবে এই টপিকটি অনুশীলন করতে চান? (How would you like to practice this topic?)</p>
             
             <div className="space-y-4">
               <button
@@ -111,14 +111,14 @@ export default function TopicList({ subject, chapterIndex, questions, onBack, on
                   onSelectTopic(selectedTopicForMode, 'quiz');
                   setSelectedTopicForMode(undefined);
                 }}
-                className="w-full flex items-start gap-4 p-5 rounded-2xl border-2 border-slate-700 bg-slate-800/50 hover:border-emerald-500 hover:bg-emerald-500/10 transition-all text-left group"
+                className="w-full flex items-start gap-4 p-5 rounded-2xl border-2 border-slate-705 border-slate-700 bg-slate-800/50 hover:border-emerald-500 hover:bg-emerald-500/10 transition-all text-left group cursor-pointer"
               >
                 <div className="bg-emerald-500/20 p-3 rounded-xl group-hover:bg-emerald-500/30 transition-colors">
                   <BookOpen className="w-8 h-8 text-emerald-400" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-white mb-1">কুইজ মোড</h3>
-                  <p className="text-sm text-slate-400 leading-relaxed">প্রতিটি প্রশ্নের পর সঠিক উত্তর ও ব্যাখ্যা দেখুন। অনুশীলনের জন্য সেরা।</p>
+                  <h3 className="text-lg font-bold text-white mb-1">অনুশীলন মোড (Practice Mode)</h3>
+                  <p className="text-sm text-slate-400 leading-relaxed">প্রতিটি প্রশ্নের পর সঠিক উত্তর ও ব্যাখ্যা দেখুন। অনুশীলনের জন্য সেরা। (See answers & explanations immediately. Best for quick revisions.)</p>
                 </div>
               </button>
 
@@ -127,14 +127,14 @@ export default function TopicList({ subject, chapterIndex, questions, onBack, on
                   onSelectTopic(selectedTopicForMode, 'exam');
                   setSelectedTopicForMode(undefined);
                 }}
-                className="w-full flex items-start gap-4 p-5 rounded-2xl border-2 border-slate-700 bg-slate-800/50 hover:border-blue-500 hover:bg-blue-500/10 transition-all text-left group"
+                className="w-full flex items-start gap-4 p-5 rounded-2xl border-2 border-slate-700 bg-slate-800/50 hover:border-blue-500 hover:bg-blue-500/10 transition-all text-left group cursor-pointer"
               >
                 <div className="bg-blue-500/20 p-3 rounded-xl group-hover:bg-blue-500/30 transition-colors">
                   <GraduationCap className="w-8 h-8 text-blue-400" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-white mb-1">এক্সাম মোড</h3>
-                  <p className="text-sm text-slate-400 leading-relaxed">সবগুলো প্রশ্নের উত্তর দেওয়ার পর একসাথে ফলাফল ও ব্যাখ্যা দেখুন।</p>
+                  <h3 className="text-lg font-bold text-white mb-1">পরীক্ষা মোড (Real Exam Mode)</h3>
+                  <p className="text-sm text-slate-400 leading-relaxed">সবগুলো প্রশ্নের উত্তর দেওয়ার পর একসাথে ফলাফল ও ব্যাখ্যা দেখুন। (Exam simulation - review scores and complete answers at the very end.)</p>
                 </div>
               </button>
             </div>

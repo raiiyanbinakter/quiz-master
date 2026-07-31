@@ -37,8 +37,19 @@ export default function Quiz({ questions, mode, subjectId, chapterIndex, quizTit
   const calculateExamTime = () => {
     if (questions.length === 0) return 0;
 
+    if (subjectId === 'bio1' && chapterIndex === 6) {
+      if (questions.length === 67) return 50 * 60; // Gymnosperms and Cycas (50 mins)
+      if (questions.length === 91) return 60 * 60; // Angiosperms (60 mins)
+      if (questions.length === 24) return 15 * 60; // Poaceae (15 mins)
+      return 120 * 60; // Full Chapter (120 mins)
+    }
+
     if (subjectId === 'dcu_phys2' && chapterIndex === 0) return 30 * 60; // 30 mins
     if (subjectId === 'dcu_phys2' && chapterIndex === 1) return 40 * 60; // 40 mins
+    if (subjectId === 'dcu_phys2' && chapterIndex === 2) return 40 * 60; // 40 mins
+    if (subjectId === 'dcu_chem1' && chapterIndex === 0) return 80 * 60; // 80 mins
+    if (subjectId === 'dcu_chem1' && chapterIndex === 1) return 60 * 60; // 60 mins
+    if (subjectId === 'dcu_chem2' && chapterIndex === 0) return 50 * 60; // 50 mins
 
     // specific topic lengths for chem1 to set exact minutes
     if (questions.length === 61 && subjectId === 'chem1') return 10 * 60; // 10 mins for Topic 9
@@ -233,7 +244,7 @@ export default function Quiz({ questions, mode, subjectId, chapterIndex, quizTit
             <ArrowLeft className="w-6 h-6" />
           </button>
           <div className="bg-slate-800 px-4 py-2 rounded-full border border-slate-700 flex items-center gap-2">
-            <span className="text-slate-400 font-medium">প্রশ্ন:</span>
+            <span className="text-slate-400 font-medium">প্রশ্ন (Question):</span>
             <span className="text-white font-bold">{currentIndex + 1}/{questions.length}</span>
           </div>
         </div>
@@ -241,17 +252,17 @@ export default function Quiz({ questions, mode, subjectId, chapterIndex, quizTit
         {mode === 'quiz' && (
           <div className="bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-full flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            <span className="text-emerald-400 font-medium">সঠিক: {correctCount}টি</span>
+            <span className="text-emerald-400 font-medium">সঠিক (Correct): {correctCount}টি</span>
           </div>
         )}
 
         {mode === 'exam' && (
           <button
             onClick={() => setShowQuitConfirm(true)}
-            className="bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 px-4 py-2 rounded-full flex items-center gap-2 transition-colors"
+            className="bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 px-4 py-2 rounded-full flex items-center gap-2 transition-colors cursor-pointer"
           >
             <XCircle className="w-4 h-4 text-rose-400" />
-            <span className="text-rose-400 font-medium">পরীক্ষা শেষ করুন</span>
+            <span className="text-rose-400 font-medium">পরীক্ষা শেষ করুন (Quit Exam)</span>
           </button>
         )}
       </div>
@@ -290,11 +301,11 @@ export default function Quiz({ questions, mode, subjectId, chapterIndex, quizTit
             {(mode === 'quiz' || mode === 'exam') && (
               <button 
                 onClick={() => setShowReportModal(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-700/50 hover:bg-slate-700 text-slate-400 hover:text-rose-400 transition-colors border border-slate-600/50"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-700/50 hover:bg-slate-700 text-slate-400 hover:text-rose-400 transition-colors border border-slate-600/50 cursor-pointer"
                 title="Report issue with this question"
               >
                 <Flag className="w-4 h-4" />
-                <span>রিপোর্ট</span>
+                <span>রিপোর্ট (Report)</span>
               </button>
             )}
           </div>
@@ -346,7 +357,7 @@ export default function Quiz({ questions, mode, subjectId, chapterIndex, quizTit
           <div className="flex items-start gap-3">
             <Info className="w-6 h-6 text-blue-400 shrink-0 mt-0.5" />
             <div>
-              <h4 className="text-blue-400 font-semibold mb-1">ব্যাখ্যা:</h4>
+              <h4 className="text-blue-400 font-semibold mb-1">ব্যাখ্যা (Explanation):</h4>
               <p className="text-slate-300 leading-relaxed">{currentQuestion.explanation}</p>
             </div>
           </div>
@@ -358,19 +369,19 @@ export default function Quiz({ questions, mode, subjectId, chapterIndex, quizTit
         {mode === 'exam' && currentIndex > 0 && (
           <button
             onClick={handlePrev}
-            className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold text-lg py-4 rounded-2xl transition-colors flex items-center justify-center gap-2"
+            className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold text-lg py-4 rounded-2xl transition-colors flex items-center justify-center gap-2 cursor-pointer"
           >
             <ArrowLeft className="w-6 h-6" />
-            পূর্ববর্তী
+            পূর্ববর্তী (Previous)
           </button>
         )}
         
         {(mode === 'exam' || (mode === 'quiz' && isAnswered)) && (
           <button
             onClick={mode === 'exam' && currentIndex === questions.length - 1 ? submitExam : handleNext}
-            className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-lg py-4 rounded-2xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
+            className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-lg py-4 rounded-2xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 cursor-pointer"
           >
-            {currentIndex < questions.length - 1 ? 'পরবর্তী প্রশ্ন' : 'ফলাফল দেখুন'}
+            {currentIndex < questions.length - 1 ? 'পরবর্তী প্রশ্ন (Next Question)' : 'ফলাফল দেখুন (View Results)'}
             {currentIndex < questions.length - 1 && <ArrowRight className="w-6 h-6" />}
           </button>
         )}
@@ -380,22 +391,22 @@ export default function Quiz({ questions, mode, subjectId, chapterIndex, quizTit
       {showQuitConfirm && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-800 rounded-3xl p-8 max-w-md w-full border border-slate-700 shadow-2xl">
-            <h3 className="text-2xl font-bold text-white mb-4">পরীক্ষা শেষ করতে চান?</h3>
-            <p className="text-slate-300 mb-8 leading-relaxed">
-              আপনি কি নিশ্চিত যে আপনি পরীক্ষাটি মাঝপথেই শেষ করতে চান? আপনার বর্তমান উত্তরগুলো মূল্যায়ন করা হবে এবং আপনি ব্যাখ্যাগুলো দেখতে পারবেন।
+            <h3 className="text-2xl font-bold text-white mb-4">পরীক্ষা শেষ করতে চান? (Submit exam?)</h3>
+            <p className="text-slate-300 mb-8 leading-relaxed text-sm">
+              আপনি কি নিশ্চিত যে আপনি পরীক্ষাটি মাঝপথেই শেষ করতে চান? আপনার বর্তমান উত্তরগুলো মূল্যায়ন করা হবে এবং আপনি ব্যাখ্যাগুলো দেখতে পারবেন। (Are you sure you want to finish now? Your current answers will be graded.)
             </p>
             <div className="flex gap-4">
               <button
                 onClick={() => setShowQuitConfirm(false)}
-                className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 rounded-xl transition-colors"
+                className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 rounded-xl transition-colors cursor-pointer"
               >
-                বাতিল করুন
+                বাতিল করুন (Cancel)
               </button>
               <button
                 onClick={submitExam}
-                className="flex-1 bg-rose-500 hover:bg-rose-600 text-white font-semibold py-3 rounded-xl transition-colors shadow-lg shadow-rose-500/20"
+                className="flex-1 bg-rose-500 hover:bg-rose-600 text-white font-semibold py-3 rounded-xl transition-colors shadow-lg shadow-rose-500/20 cursor-pointer"
               >
-                হ্যাঁ, শেষ করুন
+                হ্যাঁ, শেষ করুন (Yes, Finish)
               </button>
             </div>
           </div>
@@ -406,22 +417,22 @@ export default function Quiz({ questions, mode, subjectId, chapterIndex, quizTit
       {showBackConfirm && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-800 rounded-3xl p-8 max-w-md w-full border border-slate-700 shadow-2xl">
-            <h3 className="text-2xl font-bold text-white mb-4">ফিরে যেতে চান?</h3>
-            <p className="text-slate-300 mb-8 leading-relaxed">
-              আপনি কি নিশ্চিত যে আপনি ফিরে যেতে চান? আপনার বর্তমান অগ্রগতি হারিয়ে যাবে।
+            <h3 className="text-2xl font-bold text-white mb-4">ফিরে যেতে চান? (Go Back?)</h3>
+            <p className="text-slate-300 mb-8 leading-relaxed text-sm">
+              আপনি কি নিশ্চিত যে আপনি ফিরে যেতে চান? আপনার বর্তমান অগ্রগতি হারিয়ে যাবে। (Are you sure you want to quit? Your current quiz progress will be lost.)
             </p>
             <div className="flex gap-4">
               <button
                 onClick={() => setShowBackConfirm(false)}
-                className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 rounded-xl transition-colors"
+                className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 rounded-xl transition-colors cursor-pointer"
               >
-                না, চালিয়ে যান
+                না, চালিয়ে যান (No, Continue)
               </button>
               <button
                 onClick={onBack}
-                className="flex-1 bg-rose-500 hover:bg-rose-600 text-white font-semibold py-3 rounded-xl transition-colors shadow-lg shadow-rose-500/20"
+                className="flex-1 bg-rose-500 hover:bg-rose-600 text-white font-semibold py-3 rounded-xl transition-colors shadow-lg shadow-rose-500/20 cursor-pointer"
               >
-                হ্যাঁ, ফিরে যান
+                হ্যাঁ, ফিরে যান (Yes, Quit)
               </button>
             </div>
           </div>
@@ -432,44 +443,44 @@ export default function Quiz({ questions, mode, subjectId, chapterIndex, quizTit
       {showReportModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-800 rounded-3xl p-6 md:p-8 max-w-md w-full border border-slate-700 shadow-2xl">
-            <h3 className="text-2xl font-bold text-white mb-2 flex items-center gap-2">
+            <h3 className="text-2xl font-bold text-white mb-2 flex items-center gap-2 text-left">
               <Flag className="w-6 h-6 text-rose-400" />
-              সমস্যা রিপোর্ট করুন
+              সমস্যা রিপোর্ট করুন (Report issue)
             </h3>
-            <p className="text-slate-400 mb-6 text-sm">
-              এই প্রশ্নে কি কোনো সমস্যা আছে? দয়া করে বিস্তারিত জানান, যাতে আমরা ঠিক করতে পারি।
+            <p className="text-slate-400 mb-6 text-sm text-left">
+              এই প্রশ্নে কি কোনো সমস্যা আছে? দয়া করে বিস্তারিত জানান, যাতে আমরা ঠিক করতে পারি। (Is there any problem with this question/options? Let us know.)
             </p>
             
             {reportSuccess ? (
               <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 p-4 rounded-xl flex items-center gap-3">
                 <CheckCircle2 className="w-6 h-6 shrink-0" />
-                <p className="font-medium">আপনার রিপোর্ট জমা দেওয়া হয়েছে। ধন্যবাদ!</p>
+                <p className="font-medium text-sm">আপনার রিপোর্ট জমা দেওয়া হয়েছে। ধন্যবাদ! (Report submitted successfully!)</p>
               </div>
             ) : (
               <form onSubmit={handleReportSubmit}>
                 <div className="mb-4">
-                  <label className="block text-slate-300 font-medium mb-2 text-sm text-left">সমস্যার ধরন</label>
+                  <label className="block text-slate-300 font-medium mb-2 text-sm text-left">সমস্যার ধরন (Issue Type)</label>
                   <select 
                     value={reportType}
                     onChange={(e) => setReportType(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-rose-500"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-rose-500 text-sm"
                     required
                   >
-                    <option value="Wrong Answer">উত্তর ভুল দেওয়া আছে</option>
-                    <option value="Typo / Spelling">বানান ভুল</option>
-                    <option value="Question is wrong">প্রশ্নটি অসম্পূর্ণ বা ভুল</option>
-                    <option value="Options are missing">সঠিক অপশন নেই</option>
-                    <option value="Other">অন্যান্য</option>
+                    <option value="Wrong Answer">উত্তর ভুল দেওয়া আছে (Incorrect Correct Answer)</option>
+                    <option value="Typo / Spelling">বানান ভুল (Typo / Speller Error)</option>
+                    <option value="Question is wrong">প্রশ্নটি অসম্পূর্ণ বা ভুল (Question Broken/Incomplete)</option>
+                    <option value="Options are missing">সঠিক অপশন নেই (Missing Option)</option>
+                    <option value="Other">অন্যান্য (Other)</option>
                   </select>
                 </div>
                 
                 <div className="mb-6">
-                  <label className="block text-slate-300 font-medium mb-2 text-sm text-left">বিস্তারিত (ঐচ্ছিক)</label>
+                  <label className="block text-slate-300 font-medium mb-2 text-sm text-left">বিস্তারিত (Details, Optional)</label>
                   <textarea 
                     value={reportDetails}
                     onChange={(e) => setReportDetails(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-rose-500 h-24 resize-none"
-                    placeholder="সমস্যাটি বিস্তারিত লিখুন..."
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-rose-500 h-24 resize-none text-sm"
+                    placeholder="সমস্যাটি বিস্তারিত লিখুন... (Explain the issue...)"
                   />
                 </div>
                 
@@ -477,16 +488,16 @@ export default function Quiz({ questions, mode, subjectId, chapterIndex, quizTit
                   <button
                     type="button"
                     onClick={() => { setShowReportModal(false); setReportDetails(''); }}
-                    className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 rounded-xl transition-colors"
+                    className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 rounded-xl transition-colors cursor-pointer text-sm"
                   >
-                    বাতিল
+                    বাতিল (Cancel)
                   </button>
                   <button
                     type="submit"
                     disabled={submittingReport}
-                    className="flex-1 bg-rose-500 hover:bg-rose-600 disabled:bg-rose-500/50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition-colors shadow-lg shadow-rose-500/20"
+                    className="flex-1 bg-rose-500 hover:bg-rose-600 disabled:bg-rose-500/50 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition-colors shadow-lg shadow-rose-500/20 cursor-pointer text-sm"
                   >
-                    {submittingReport ? 'অপেক্ষা করুন...' : 'রিপোর্ট জমা দিন'}
+                    {submittingReport ? 'অপেক্ষা করুন... (Submitting...)' : 'রিপোর্ট জমা দিন (Submit Report)'}
                   </button>
                 </div>
               </form>

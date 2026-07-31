@@ -111,30 +111,37 @@ export default function ChapterList({ subject, userData, onBack, onSelectChapter
             const isDynamic = !!(subject as any)._rawChapters;
             const isUnlocked = isDynamic ? isChapterUnlocked(index) : subject.activeChapters.includes(index);
             const isGamified = isDynamic ? checkGamified(index) : false;
+            const isUnderRescue = userData?.rescueChapters?.includes(`${subject.id}_${index}`);
             
             return (
               <button
                 key={index}
                 onClick={() => handleSelect(index)}
                 className={`w-full flex items-center justify-between p-4 rounded-2xl border transition-all duration-300 ${
-                  isUnlocked 
+                  isUnderRescue
+                    ? 'bg-rose-950/20 border-rose-500/40 hover:border-rose-500 hover:bg-rose-950/30 cursor-pointer shadow-[0_0_15px_rgba(244,63,94,0.08)]'
+                    : isUnlocked 
                     ? 'bg-slate-800 border-slate-700 hover:border-emerald-500 hover:bg-slate-800/80 cursor-pointer' 
                     : 'bg-slate-800/50 border-slate-800 opacity-75 cursor-pointer hover:border-rose-500/50'
                 }`}
               >
                 <div className="flex items-center gap-4 text-left">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                    isUnlocked ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700 text-slate-500'
+                    isUnderRescue ? 'bg-rose-500/25 text-rose-400' : isUnlocked ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700 text-slate-500'
                   }`}>
                     <span className="font-semibold">{index + 1}</span>
                   </div>
-                  <span className={`font-medium text-lg ${isUnlocked ? 'text-slate-200' : 'text-slate-500'}`}>
+                  <span className={`font-medium text-lg ${isUnderRescue ? 'text-rose-300' : isUnlocked ? 'text-slate-200' : 'text-slate-500'}`}>
                     {chapter}
                   </span>
                 </div>
                 
                 <div>
-                  {isUnlocked ? (
+                  {isUnderRescue ? (
+                    <div className="flex items-center gap-2 text-rose-400 text-xs bg-rose-500/10 border border-rose-500/20 px-3 py-1.5 rounded-full select-none animate-pulse font-bold">
+                       <span>RESCUE ACTIVE 🚨</span>
+                    </div>
+                  ) : isUnlocked ? (
                     <PlayCircle className="w-6 h-6 text-emerald-500" />
                   ) : (
                     <div className="flex items-center gap-2 text-slate-500 text-sm bg-slate-900/50 px-3 py-1.5 rounded-full">
