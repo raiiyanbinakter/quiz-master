@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Lock, PlayCircle, Home, ChevronRight, Map, List } from 'lucide-react';
+import { ArrowLeft, PlayCircle, Home, ChevronRight, Map, List, BookOpen, RotateCcw, CheckCircle2, Target } from 'lucide-react';
 import { Subject } from '../types';
-import ProgressionMap from './ProgressionMap';
+import ProgressionMap, { getChapterLearningStatus } from './ProgressionMap';
 
 interface ChapterListProps {
   subject: Subject;
@@ -13,86 +13,59 @@ interface ChapterListProps {
 export default function ChapterList({ subject, userData, onBack, onSelectChapter }: ChapterListProps) {
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
 
-  const checkGamified = (index: number) => {
-    // Check if the current chapter is gamified. For static subjects, default to false.
-    const rawChapters = (subject as any)._rawChapters;
-    if (rawChapters && rawChapters[index]) {
-       return rawChapters[index].isGamified === true;
-    }
-    return false; // Static subjects are open (though activeChapters might restrict them, but we let them be fully open for admission focus)
-  };
-
-  const isChapterUnlocked = (index: number) => {
-    const isGamified = checkGamified(index);
-    if (!isGamified) return true; // If not gamified, it's always unlocked
-
-    if (index === 0) return true;
-    const chapterId = `${subject.id}_${index}`;
-    return (userData?.unlockedChapters || []).includes(chapterId);
-  };
-
   const handleSelect = (index: number) => {
-    const isDynamic = !!(subject as any)._rawChapters;
-    
-    if (!isDynamic && !subject.activeChapters.includes(index)) {
-      alert("This chapter is currently unavailable.");
-      return;
-    }
-
-    if (isDynamic && checkGamified(index) && !isChapterUnlocked(index)) {
-      alert("🔒 You must pass the previous chapter with 80% to unlock this level!");
-      return;
-    }
+    // Academic open access rule: Do not hard block students from viewing or practicing normal academic chapters
     onSelectChapter(index);
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
+    <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
       {/* Breadcrumbs */}
-      <div className="flex items-center gap-2 text-sm text-slate-400 mb-6 font-medium bg-slate-900/50 p-3 rounded-xl border border-slate-800 w-fit">
-        <button onClick={onBack} className="hover:text-white flex items-center gap-1.5 transition-colors">
-          <Home className="w-4 h-4" /> Home
+      <div className="flex items-center gap-2 text-sm text-slate-400 font-medium bg-slate-900/50 p-3 rounded-xl border border-slate-800 w-fit">
+        <button onClick={onBack} className="hover:text-white flex items-center gap-1.5 transition-colors cursor-pointer">
+          <Home className="w-4 h-4" /> হোম
         </button>
         <ChevronRight className="w-4 h-4 text-slate-600" />
-        <span className="text-emerald-400">{subject.name}</span>
+        <span className="text-emerald-400 font-bold">{subject.name}</span>
       </div>
 
-      {/* Header with toggle view button */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+      {/* Header with view mode toggle */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <button 
             onClick={onBack}
-            className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-white"
+            className="p-2.5 bg-slate-900 hover:bg-slate-800 rounded-2xl transition-colors text-slate-400 hover:text-white cursor-pointer border border-slate-800"
+            title="ফিরে যান"
           >
-            <ArrowLeft className="w-6 h-6" />
+            <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
             <h1 className="text-2xl font-bold text-white">{subject.name}</h1>
-            <p className="text-slate-400 text-sm">অধ্যায় নির্বাচন করুন (Select Chapter)</p>
+            <p className="text-slate-400 text-xs sm:text-sm mt-0.5">পড়ার অগ্রগতি ও অধ্যায় নির্বাচন করুন</p>
           </div>
         </div>
 
         {/* View Mode Toggle */}
-        <div className="bg-slate-900 border border-slate-800 p-1.5 rounded-xl flex items-center gap-1.5 self-start sm:self-center">
+        <div className="bg-slate-900 border border-slate-800 p-1.5 rounded-2xl flex items-center gap-1.5 self-start sm:self-center">
           <button
             onClick={() => setViewMode('map')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
               viewMode === 'map' 
-                ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/10' 
+                ? 'bg-indigo-600 text-white shadow-md' 
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <Map className="w-3.5 h-3.5" /> Map View
+            <Map className="w-3.5 h-3.5" /> অগ্রগতি ম্যাপ
           </button>
           <button
             onClick={() => setViewMode('list')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
               viewMode === 'list' 
-                ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/10' 
+                ? 'bg-indigo-600 text-white shadow-md' 
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            <List className="w-3.5 h-3.5" /> List View
+            <List className="w-3.5 h-3.5" /> লিস্ট ভিউ
           </button>
         </div>
       </div>
@@ -107,48 +80,45 @@ export default function ChapterList({ subject, userData, onBack, onSelectChapter
       ) : (
         /* Chapters List */
         <div className="space-y-3">
-          {subject.chapters.map((chapter, index) => {
-            const isDynamic = !!(subject as any)._rawChapters;
-            const isUnlocked = isDynamic ? isChapterUnlocked(index) : subject.activeChapters.includes(index);
-            const isGamified = isDynamic ? checkGamified(index) : false;
-            const isUnderRescue = userData?.rescueChapters?.includes(`${subject.id}_${index}`);
-            
+          {subject.chapters.map((chapterTitle, index) => {
+            const statusInfo = getChapterLearningStatus(subject.id, index, userData);
+
             return (
               <button
                 key={index}
                 onClick={() => handleSelect(index)}
-                className={`w-full flex items-center justify-between p-4 rounded-2xl border transition-all duration-300 ${
-                  isUnderRescue
-                    ? 'bg-rose-950/20 border-rose-500/40 hover:border-rose-500 hover:bg-rose-950/30 cursor-pointer shadow-[0_0_15px_rgba(244,63,94,0.08)]'
-                    : isUnlocked 
-                    ? 'bg-slate-800 border-slate-700 hover:border-emerald-500 hover:bg-slate-800/80 cursor-pointer' 
-                    : 'bg-slate-800/50 border-slate-800 opacity-75 cursor-pointer hover:border-rose-500/50'
-                }`}
+                className={`w-full flex items-center justify-between p-4.5 rounded-2xl border transition-all duration-200 text-left cursor-pointer bg-slate-900 border-slate-800 hover:border-slate-700 hover:bg-slate-850`}
               >
-                <div className="flex items-center gap-4 text-left">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                    isUnderRescue ? 'bg-rose-500/25 text-rose-400' : isUnlocked ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700 text-slate-500'
+                <div className="flex items-center gap-4">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm ${
+                    statusInfo.status === 'mastered'
+                      ? 'bg-emerald-500/20 text-emerald-400'
+                      : statusInfo.status === 'needs_revision'
+                      ? 'bg-amber-500/20 text-amber-400'
+                      : statusInfo.status === 'in_practice'
+                      ? 'bg-cyan-500/20 text-cyan-400'
+                      : 'bg-slate-800 text-slate-400'
                   }`}>
-                    <span className="font-semibold">{index + 1}</span>
+                    {index + 1}
                   </div>
-                  <span className={`font-medium text-lg ${isUnderRescue ? 'text-rose-300' : isUnlocked ? 'text-slate-200' : 'text-slate-500'}`}>
-                    {chapter}
-                  </span>
+                  <div>
+                    <span className="font-bold text-slate-100 text-base block">
+                      {chapterTitle}
+                    </span>
+                    <span className="text-xs text-slate-400 mt-0.5 block">
+                      {statusInfo.status === 'not_started' && 'এখনও অনুশীলন শুরু হয়নি'}
+                      {statusInfo.status === 'in_practice' && 'অনুশীলন চলমান'}
+                      {statusInfo.status === 'needs_revision' && 'আগের অনুশীলনে রিভিশন প্রয়োজন'}
+                      {statusInfo.status === 'mastered' && 'অধ্যায় ভালোভাবে অর্জিত হয়েছে'}
+                    </span>
+                  </div>
                 </div>
                 
-                <div>
-                  {isUnderRescue ? (
-                    <div className="flex items-center gap-2 text-rose-400 text-xs bg-rose-500/10 border border-rose-500/20 px-3 py-1.5 rounded-full select-none animate-pulse font-bold">
-                       <span>RESCUE ACTIVE 🚨</span>
-                    </div>
-                  ) : isUnlocked ? (
-                    <PlayCircle className="w-6 h-6 text-emerald-500" />
-                  ) : (
-                    <div className="flex items-center gap-2 text-slate-500 text-sm bg-slate-900/50 px-3 py-1.5 rounded-full">
-                       <Lock className="w-4 h-4" />
-                       <span>{isGamified ? 'Locked' : 'শীঘ্রই আসছে'}</span>
-                    </div>
-                  )}
+                <div className="flex items-center gap-3">
+                  <span className={`text-xs font-bold px-3 py-1 rounded-full border ${statusInfo.statusBg} ${statusInfo.statusColor} ${statusInfo.statusBorder}`}>
+                    {statusInfo.statusLabel}
+                  </span>
+                  <PlayCircle className="w-5 h-5 text-indigo-400 shrink-0" />
                 </div>
               </button>
             );

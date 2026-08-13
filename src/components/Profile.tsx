@@ -2,14 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, where, getDocs, doc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { deleteUser } from 'firebase/auth';
 import { auth, db } from '../firebase';
-import { User, Activity, Loader2, ArrowLeft, Trash2, AlertTriangle, Flame, Diamond, Zap, Crown, Star, Award, Trophy, Compass, BookOpen, HeartHandshake } from 'lucide-react';
-import { uiCopy } from '../content/uiCopy';
+import { 
+  ArrowLeft, BookOpen, TrendingUp, HeartHandshake, Flame, Award, 
+  Sparkles, Settings, Trash2, Loader2, AlertTriangle, ChevronRight, 
+  ShoppingBag, CheckCircle2, Lock, BarChart2, ShieldAlert, Target,
+  Compass, Users2, Layers, Check
+} from 'lucide-react';
+import UserAvatar from './UserAvatar';
+import { StudentGameProfile, LearningRoute } from '../types/gamification';
+import { INITIAL_ACHIEVEMENTS, getLockedAchievementHint } from '../utils/gamification';
 
 interface ProfileProps {
   user: any;
   userData?: any;
+  gameProfile?: StudentGameProfile | null;
   onBack: () => void;
+  onNavigate?: (view: string) => void;
   onUpgradeClick?: () => void;
+  onOpenRouteSetup?: () => void;
 }
 
 interface ResultEntry {
@@ -20,14 +30,20 @@ interface ResultEntry {
   createdAt: any;
 }
 
-import RankBadge from './RankBadge';
-import UserAvatar from './UserAvatar';
+const ROUTE_LABELS: Record<LearningRoute, string> = {
+  academic: 'একাডেমিক প্রস্তুতি (SSC / HSC)',
+  medical: 'মেডিকেল ভর্তি প্রস্তুতি',
+  varsity: 'বিশ্ববিদ্যালয় ভর্তি প্রস্তুতি',
+  engineering: 'ইঞ্জিনিয়ারিং ভর্তি প্রস্তুতি'
+};
 
-export default function Profile({ user, userData, onBack, onUpgradeClick }: ProfileProps) {
+export default function Profile({ user, userData, gameProfile, onBack, onNavigate, onOpenRouteSetup }: ProfileProps) {
   const [results, setResults] = useState<ResultEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const [showAccountSettings, setShowAccountSettings] = useState(false);
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
 
   useEffect(() => {
     const fetchUserResults = async () => {
@@ -44,10 +60,10 @@ export default function Profile({ user, userData, onBack, onUpgradeClick }: Prof
           ...doc.data()
         })) as ResultEntry[];
         
-        data.sort((a, b) => b.createdAt?.toMillis() - a.createdAt?.toMillis());
+        data.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
         setResults(data);
       } catch (error) {
-        console.error("Error fetching user results:", error);
+        console.warn("Error fetching user results:", error);
       } finally {
         setLoading(false);
       }
@@ -56,53 +72,18 @@ export default function Profile({ user, userData, onBack, onUpgradeClick }: Prof
     fetchUserResults();
   }, [user]);
 
-  // Compute Strongest Subject
-  const getStrongestSubject = () => {
-    if (results.length === 0) return 'নির্ধারিত হয়নি (Not Enough Practice)';
-    const totals: Record<string, { correct: number, total: number }> = {};
-    results.forEach(r => {
-      const sName = r.subjectName || 'General';
-      if (!totals[sName]) totals[sName] = { correct: 0, total: 0 };
-      totals[sName].correct += r.score;
-      totals[sName].total += r.totalQuestions;
-    });
+  // Meaningful progress calculation
+  const progressPoints = gameProfile?.progressPoints || userData?.progressPoints || 0;
+  const helpPoints = gameProfile?.helpPoints || userData?.reputation || 0;
+  const currentStreak = gameProfile?.currentStreak || userData?.currentStreak || 0;
+  const selectedRoute = gameProfile?.selectedRoute || userData?.selectedRoute;
+  const targetExam = gameProfile?.targetExam || userData?.targetExam || 'নির্ধারিত হয়নি';
 
-    let bestSubject = '';
-    let bestRate = -1;
-
-    Object.keys(totals).forEach(name => {
-      const rate = totals[name].total > 0 ? (totals[name].correct / totals[name].total) : 0;
-      if (rate > bestRate) {
-        bestRate = rate;
-        bestSubject = name;
-      }
-    });
-
-    return `${bestSubject} (${Math.round(bestRate * 100)}% accuracy)`;
-  };
-
-  // Compute dynamic Scholar Rank
-  const getScholarRank = () => {
-    const chapterCount = userData?.unlockedChapters?.length || 1;
-    if (chapterCount <= 1) return 'নবাগত শিক্ষার্থী (Beginner Student)';
-    if (chapterCount <= 3) return 'অনুসন্ধিৎসু ছাত্র (Adequate Scholar)';
-    if (chapterCount <= 5) return 'সিনিয়র ছাত্র (Advanced Scholar)';
-    return 'মাস্টার স্কলার (Master Scholar of Bangladesh) 🏆';
-  };
-
-  // Compute dynamic Mentor Rank
-  const getMentorRank = () => {
-    const rep = userData?.reputation || 0;
-    if (rep === 0) return 'সহকারী শিক্ষানবিস (Help Apprentice)';
-    if (rep <= 20) return 'সহযোগী পরামর্শক (Expert Assistant)';
-    if (rep <= 55) return 'অনলাইন মেন্টর (Verified online Mentor)';
-    return 'সিনিয়র মেন্টর (Chief Mentor Giga Specialist) 🎓';
-  };
+  const totalQuizzesTaken = results.length;
+  const unlockedChaptersCount = (userData?.unlockedChapters || []).length;
+  const acceptedAnswersCount = userData?.mentorStats?.acceptedAnswers || 0;
 
   const handleDeleteAccount = async () => {
-    const confirm = window.confirm("আপনি কি নিশ্চিত যে আপনি আপনার অ্যাকাউন্ট এবং সমস্ত ডাটা ডিলিট করতে চান? এই কাজটিকে আর পূর্বাবস্থায় ফিরিয়ে আনা যাবে না।");
-    if (!confirm) return;
-
     setDeleting(true);
     setDeleteError('');
 
@@ -135,262 +116,344 @@ export default function Profile({ user, userData, onBack, onUpgradeClick }: Prof
   if (!user) return null;
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="flex items-center gap-4 mb-8">
-        <button 
-          onClick={onBack}
-          className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-white cursor-pointer"
-        >
-          <ArrowLeft className="w-6 h-6" />
-        </button>
-        <div className="flex items-center gap-3 w-full justify-between flex-wrap">
-          <div className="flex items-center gap-4">
-            <UserAvatar url={userData?.equippedAvatar} borderId={userData?.equippedBorder} className="w-16 h-16" />
-            <div>
-              <h1 className="text-3xl font-bold text-white flex items-center gap-2">
-                {uiCopy.profile.title}
-                <RankBadge coins={userData?.coins || 0} />
-                {userData?.isPro && <Crown className="w-5 h-5 text-yellow-500" title="PRO Member" />}
-              </h1>
-              <p className="text-slate-400 text-sm">{user.displayName || 'Un-named User'} • {user.email}</p>
+    <div className="max-w-4xl mx-auto px-4 py-8 space-y-8 animate-in fade-in duration-300">
+      
+      {/* 1. PROFILE HEADER */}
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 shadow-xl relative overflow-hidden">
+        <div className="flex items-center gap-4 mb-6">
+          <button 
+            onClick={onBack}
+            className="p-2 bg-slate-800 hover:bg-slate-700 rounded-full transition-colors text-slate-300 hover:text-white cursor-pointer"
+            title="ফিরে যান"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div>
+            <h1 className="text-2xl md:text-3xl font-extrabold text-white">আমার প্রোফাইল</h1>
+            <p className="text-xs md:text-sm text-slate-400">আপনার পড়াশোনার সামগ্রিক অগ্রগতি ও প্রোফাইল বিবরণী</p>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 pt-2 border-t border-slate-800/80">
+          <UserAvatar 
+            url={userData?.equippedAvatar} 
+            borderId={userData?.equippedBorder} 
+            className="w-20 h-20 sm:w-24 sm:h-24 shrink-0 shadow-lg" 
+          />
+          <div className="text-center sm:text-left space-y-1.5 flex-1">
+            <h2 className="text-xl sm:text-2xl font-extrabold text-white">
+              {user.displayName || userData?.name || 'শিক্ষার্থী'}
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-400 font-medium">
+              {user.email}
+            </p>
+
+            <div className="pt-2 flex flex-wrap items-center justify-center sm:justify-start gap-2">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-full text-xs font-extrabold shadow-sm">
+                <Flame className={`w-4 h-4 text-amber-400 ${currentStreak > 0 ? 'fill-amber-400/20 animate-pulse' : ''}`} />
+                <span>{currentStreak} দিনের ধারাবাহিকতা</span>
+              </div>
             </div>
           </div>
-          {userData !== undefined && (
-            <div className="flex items-center gap-3 bg-slate-800/80 p-2 rounded-2xl border border-slate-700/50 flex-wrap shrink-0">
-              <div className="flex items-center gap-2 text-orange-500 bg-orange-500/10 px-3 py-2 rounded-xl">
-                <Flame className={`w-5 h-5 ${userData.currentStreak > 2 ? 'animate-pulse drop-shadow-[0_0_8px_rgba(249,115,22,0.8)]' : ''}`} />
-                <div className="flex flex-col text-left">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-orange-500/80 leading-none mb-0.5">Streak</span>
-                  <span className="font-bold leading-none">{userData.currentStreak || 0}</span>
+        </div>
+      </div>
+
+      {/* 2. ROUTE & TARGET CARD */}
+      <div className="bg-slate-900 border border-indigo-500/30 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+        <div className="flex items-start gap-4">
+          <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 rounded-2xl shrink-0 mt-0.5">
+            <Compass className="w-6 h-6" />
+          </div>
+          <div className="space-y-1">
+            <span className="text-[10px] uppercase font-mono font-bold tracking-wider text-indigo-400">আপনার প্রস্তুতির পথ</span>
+            <h3 className="text-lg font-extrabold text-white">
+              {selectedRoute ? ROUTE_LABELS[selectedRoute as LearningRoute] : 'প্রস্তুতির পথ নির্বাচন করা হয়নি'}
+            </h3>
+            <p className="text-xs text-slate-400 font-medium">
+              লক্ষ্য: <span className="text-slate-200 font-bold">{targetExam}</span>
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={onOpenRouteSetup}
+          className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-xs transition-all shadow-md shadow-indigo-600/20 flex items-center gap-2 cursor-pointer shrink-0 self-stretch md:self-auto justify-center"
+        >
+          <span>{selectedRoute ? 'পথ পরিবর্তন করুন' : 'প্রস্তুতির পথ বেছে নিন'}</span>
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* 3. THREE CLEAR PROGRESS VALUES */}
+      <div className="space-y-4">
+        <h2 className="text-lg font-extrabold text-white flex items-center gap-2">
+          <BarChart2 className="w-5 h-5 text-emerald-400" />
+          পড়াশোনার অগ্রগতি
+        </h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          
+          {/* Progress Value 1: Topic-level Mastery */}
+          <div className="bg-slate-900 border border-emerald-500/30 rounded-3xl p-6 shadow-xl relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                  <BookOpen className="w-6 h-6" />
                 </div>
+                <h3 className="text-sm font-bold text-slate-300">১. আয়ত্ত (Mastery)</h3>
               </div>
-              <div className="flex items-center gap-2 text-yellow-500 bg-yellow-500/10 px-3 py-2 rounded-xl">
-                <div className="w-5 h-5 rounded-full bg-yellow-500/20 border border-yellow-500/50 flex items-center justify-center font-bold text-[10px]">C</div>
-                <div className="flex flex-col text-left">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-yellow-500/80 leading-none mb-0.5">Coins</span>
-                  <span className="font-bold leading-none">{userData.coins || 0}</span>
-                </div>
+              
+              <div className="text-2xl font-black text-white mb-2">
+                {unlockedChaptersCount}টি টপিক/অধ্যায়
               </div>
-              <div className="flex items-center gap-2 text-cyan-400 bg-cyan-400/10 px-3 py-2 rounded-xl">
-                <Diamond className="w-5 h-5 text-cyan-400" />
-                <div className="flex flex-col text-left">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400/80 leading-none mb-0.5">Gems</span>
-                  <span className="font-bold leading-none">{userData.gems || 0}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 text-emerald-400 bg-emerald-500/10 px-3 py-2 rounded-xl">
-                <Star className="w-5 h-5 text-emerald-400 fill-emerald-400" />
-                <div className="flex flex-col text-left">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400/80 leading-none mb-0.5">Reputation</span>
-                  <span className="font-bold leading-none">{userData.reputation || 0}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 text-rose-400 bg-rose-400/10 px-3 py-2 rounded-xl">
-                <Zap className="w-5 h-5 text-rose-400" />
-                <div className="flex flex-col text-left">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-rose-400/80 leading-none mb-0.5">Energy</span>
-                  <span className="font-bold leading-none">{userData.energy !== undefined ? Math.min(5, userData.energy) : 5} <span className="text-[10px]">/5</span></span>
-                </div>
-              </div>
+              <p className="text-xs text-emerald-400 font-bold">
+                বাস্তব অনুশীলন ও সঠিক পারফরম্যান্সের ভিত্তিতে
+              </p>
             </div>
+            
+            <p className="text-xs text-slate-400 font-medium mt-4 pt-3 border-t border-slate-800">
+              পর্যাপ্ত প্রশ্নের সঠিক উত্তরের মাধ্যমে অর্জিত
+            </p>
+          </div>
+
+          {/* Progress Value 2: Progress Points */}
+          <div className="bg-slate-900 border border-cyan-500/30 rounded-3xl p-6 shadow-xl relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2.5 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
+                  <TrendingUp className="w-6 h-6" />
+                </div>
+                <h3 className="text-sm font-bold text-slate-300">২. অগ্রগতি পয়েন্ট</h3>
+              </div>
+
+              <div className="text-2xl font-black text-white mb-2">
+                {progressPoints} পয়েন্ট
+              </div>
+              <p className="text-xs text-cyan-400 font-bold">
+                কুইজ, রিভিশন ও মক টেস্ট থেকে অর্জিত
+              </p>
+            </div>
+
+            <p className="text-xs text-slate-400 font-medium mt-4 pt-3 border-t border-slate-800">
+              বাস্তব শেখার প্রতিটি পদক্ষেপে বৃদ্ধি পায়
+            </p>
+          </div>
+
+          {/* Progress Value 3: Help Points */}
+          <div className="bg-slate-900 border border-violet-500/30 rounded-3xl p-6 shadow-xl relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2.5 rounded-2xl bg-violet-500/10 border border-violet-500/20 text-violet-400">
+                  <HeartHandshake className="w-6 h-6" />
+                </div>
+                <h3 className="text-sm font-bold text-slate-300">৩. সহায়তা পয়েন্ট</h3>
+              </div>
+
+              <div className="text-2xl font-black text-white mb-2">
+                {helpPoints} পয়েন্ট
+              </div>
+              <p className="text-xs text-violet-400 font-bold">
+                {acceptedAnswersCount > 0 ? `${acceptedAnswersCount}টি গৃহীত উত্তর` : 'ডাউট ফোরামে সহায়তার মাধ্যমে অর্জিত'}
+              </p>
+            </div>
+
+            <p className="text-xs text-slate-400 font-medium mt-4 pt-3 border-t border-slate-800">
+              সহপাঠীদের সাহায্য করার স্বীকৃতি
+            </p>
+          </div>
+
+        </div>
+      </div>
+
+      {/* 4. ACHIEVEMENTS SECTION */}
+      <div className="space-y-4">
+        <h2 className="text-lg font-extrabold text-white flex items-center gap-2">
+          <Award className="w-5 h-5 text-amber-400" />
+          আমার অর্জন
+        </h2>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+          {INITIAL_ACHIEVEMENTS.map((ach) => {
+            const achProgress = gameProfile?.achievementProgress || {};
+            let isUnlocked = false;
+
+            if (ach.id === 'first_quiz') {
+              isUnlocked = (achProgress.completed_quizzes || totalQuizzesTaken) >= 1;
+            } else if (ach.id === 'streak_3') {
+              isUnlocked = currentStreak >= 3;
+            } else if (ach.id === 'review_5') {
+              isUnlocked = (achProgress.completed_reviews || 0) >= 5;
+            } else if (ach.id === 'review_10') {
+              isUnlocked = (achProgress.completed_reviews || 0) >= 10;
+            } else if (ach.id === 'help_5') {
+              isUnlocked = (achProgress.helpful_answers || acceptedAnswersCount) >= 5;
+            } else if (ach.id === 'chapter_mastery') {
+              isUnlocked = (achProgress.mastered_topics || unlockedChaptersCount) >= 1;
+            }
+
+            const lockedHint = getLockedAchievementHint(ach, gameProfile);
+
+            return (
+              <div 
+                key={ach.id}
+                className={`p-5 rounded-3xl border transition-all ${
+                  isUnlocked 
+                    ? 'bg-slate-900 border-amber-500/40 text-amber-300 shadow-lg' 
+                    : 'bg-slate-900/50 border-slate-800/80 text-slate-500'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className={`p-2.5 rounded-2xl ${isUnlocked ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-600'}`}>
+                    <Award className="w-5 h-5" />
+                  </div>
+                  {isUnlocked ? (
+                    <CheckCircle2 className="w-5 h-5 text-amber-400" />
+                  ) : (
+                    <Lock className="w-4 h-4 text-slate-600" />
+                  )}
+                </div>
+                <h3 className="font-extrabold text-white text-sm mb-1">{ach.title}</h3>
+                <p className="text-xs leading-relaxed font-medium text-slate-300 mb-2">
+                  {ach.description}
+                </p>
+                {!isUnlocked && (
+                  <p className="text-[11px] text-amber-400/80 font-medium pt-2 border-t border-slate-800/80">
+                    {lockedHint}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 5. FUTURE FAIR COMPETITION PLACEHOLDER */}
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 shadow-xl space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 rounded-2xl">
+            <Users2 className="w-6 h-6" />
+          </div>
+          <div>
+            <h2 className="text-lg font-extrabold text-white">
+              একই লক্ষ্য, একই স্তরের প্রতিযোগিতা
+            </h2>
+            <p className="text-xs text-slate-400">
+              আপনার প্রস্তুতির পথ, বিষয় এবং অনুশীলনের স্তর অনুযায়ী সঠিক প্রতিযোগিতা সাজানো হবে।
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 text-xs text-slate-300 leading-relaxed space-y-3">
+          {!selectedRoute ? (
+            <div className="space-y-3">
+              <p className="text-amber-300 font-bold">
+                প্রতিযোগিতায় অংশ নেওয়ার আগে আপনার প্রস্তুতির পথ নির্বাচন করুন।
+              </p>
+              <button
+                onClick={onOpenRouteSetup}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold px-5 py-2.5 rounded-xl transition-all cursor-pointer shadow-md shadow-indigo-600/20 inline-flex items-center gap-2"
+              >
+                <span>প্রস্তুতির পথ বেছে নিন</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <p className="text-slate-300 font-medium">
+              প্রতিযোগিতা শিগগিরই চালু হবে। এখন ব্যক্তিগত অগ্রগতি ও অনুশীলনে মন দিন।
+            </p>
           )}
         </div>
       </div>
 
-      {/* Upgraded Dual Progression Paths Card */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        {/* Scholar Progression Path */}
-        <div className="bg-gradient-to-br from-slate-900 to-slate-800/80 p-6 rounded-3xl border border-slate-800 shadow-xl relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-2xl" />
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-              <BookOpen className="w-6 h-6" />
+      {/* 6. ACCOUNT SETTINGS SECTION */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-6 shadow-xl">
+        <button
+          onClick={() => setShowAccountSettings(!showAccountSettings)}
+          className="w-full flex items-center justify-between text-left cursor-pointer"
+        >
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-slate-800 text-slate-300 rounded-2xl border border-slate-700">
+              <Settings className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest">{uiCopy.profile.rankScholar}</h3>
-              <p className="text-white font-bold text-base mt-0.5">{getScholarRank()}</p>
+              <h3 className="text-base font-extrabold text-white">অ্যাকাউন্ট সেটিংস</h3>
+              <p className="text-xs text-slate-400">অ্যাকাউন্ট তথ্য ও কনফিগারেশন</p>
             </div>
           </div>
-          <div className="space-y-3 mt-6 text-sm text-slate-400 border-t border-slate-800/80 pt-4">
-            <div className="flex justify-between">
-              <span>{uiCopy.profile.unlockedChapters}:</span>
-              <span className="font-bold text-white">{(userData?.unlockedChapters || []).length} / 25 Chapters</span>
-            </div>
-            <div className="flex justify-between">
-              <span>{uiCopy.profile.strongSubject}:</span>
-              <span className="font-bold text-emerald-400 truncate max-w-[180px]" title={getStrongestSubject()}>
-                {getStrongestSubject()}
-              </span>
-            </div>
-          </div>
-        </div>
+          <ChevronRight className={`w-5 h-5 text-slate-400 transition-transform ${showAccountSettings ? 'rotate-90' : ''}`} />
+        </button>
 
-        {/* Mentor Progression Path */}
-        <div className="bg-gradient-to-br from-slate-900 to-slate-800/80 p-6 rounded-3xl border border-slate-800 shadow-xl relative overflow-hidden">
-          <div className="absolute bottom-0 right-0 w-32 h-32 bg-purple-500/5 rounded-full blur-2xl" />
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
-              <HeartHandshake className="w-6 h-6" />
+        {showAccountSettings && (
+          <div className="mt-6 pt-6 border-t border-slate-800 space-y-4 animate-in fade-in duration-200">
+            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs space-y-2">
+              <div className="flex justify-between text-slate-400">
+                <span>ইমেইল:</span>
+                <span className="font-bold text-white">{user.email}</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>ইউজার আইডি:</span>
+                <span className="font-mono text-slate-500 text-[10px]">{user.uid}</span>
+              </div>
             </div>
-            <div>
-              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest">{uiCopy.profile.rankMentor}</h3>
-              <p className="text-white font-bold text-base mt-0.5">
-                {userData?.mentorStats?.mentorRankLabel || getMentorRank()}
-              </p>
-            </div>
-          </div>
-          <div className="space-y-3 mt-6 text-sm text-slate-400 border-t border-slate-800/80 pt-4">
-            <div className="flex justify-between">
-              <span>{uiCopy.profile.reputation}:</span>
-              <span className="font-bold text-purple-400">{userData?.reputation || 0} Rep</span>
-            </div>
-            <div className="flex justify-between">
-              <span>লিখেছেন সমাধান (Total Answers):</span>
-              <span className="font-bold text-white">{userData?.mentorStats?.answerCount || 0} টি</span>
-            </div>
-            <div className="flex justify-between">
-              <span>{uiCopy.profile.acceptedAnswers}:</span>
-              <span className="font-bold text-amber-400">{userData?.mentorStats?.acceptedAnswers || 0} টি (Best Answer)</span>
-            </div>
-            <div className="flex justify-between">
-              <span>উত্তর সঠিকতার হার (Accuracy Rate):</span>
-              <span className="font-bold text-emerald-400">100% Quality Score</span>
-            </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Season 1 Weekly Missions */}
-      <div className="bg-slate-900/40 rounded-3xl border border-slate-800 p-6 mb-8 relative">
-        <div className="flex items-center justify-between border-b border-slate-800/80 pb-3 mb-4">
-          <div className="flex items-center gap-2">
-            <Compass className="w-5 h-5 text-emerald-400" />
-            <h3 className="text-sm font-bold text-slate-300 uppercase tracking-widest">{uiCopy.profile.seasonProgress}</h3>
-          </div>
-          <span className="text-xs font-extrabold text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20">LIVE SEASON</span>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800/80 flex items-start gap-3">
-            <Award className="w-5 h-5 text-yellow-400 mt-1 shrink-0" />
-            <div>
-              <h4 className="text-white text-xs font-bold font-mono">MISSION 1: CHAPTER ASSISTANT</h4>
-              <p className="text-slate-400 text-xs mt-1">কুইজে টানা ৩ বার ৯০% সঠিক উত্তর দান করুন (০/৩)</p>
-              <div className="text-[10px] text-amber-400 mt-1.5 font-bold">পুরস্কার: +৩০০ কয়েন</div>
+            {deleteError && (
+              <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-start gap-3 text-xs text-rose-300">
+                <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+                <p>{deleteError}</p>
+              </div>
+            )}
+
+            <div className="pt-2">
+              <button
+                onClick={() => setShowDeleteConfirmModal(true)}
+                className="px-4 py-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl text-xs font-bold transition-colors border border-rose-500/30 flex items-center gap-2 cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>আমার অ্যাকাউন্ট ডিলিট করুন</span>
+              </button>
             </div>
-          </div>
-          <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800/80 flex items-start gap-3">
-            <Award className="w-5 h-5 text-emerald-400 mt-1 shrink-0" />
-            <div>
-              <h4 className="text-white text-xs font-bold font-mono">MISSION 2: ACTIVE HELPER</h4>
-              <p className="text-slate-400 text-xs mt-1">ডাউট এরিনাতে ২টি ডাউটের উত্তর প্রদান করুন (০/২)</p>
-              <div className="text-[10px] text-emerald-400 mt-1.5 font-bold">পুরস্কার: +৫০০ রিপুটেশন</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {!userData?.isPro && onUpgradeClick && (
-        <div className="mb-8 relative overflow-hidden bg-gradient-to-r from-amber-600/10 via-yellow-500/10 to-orange-600/10 border border-yellow-500/20 rounded-3xl p-6 md:p-8 flex items-center justify-between shadow-xl shadow-yellow-500/5 transition-all group cursor-pointer hover:border-yellow-500/40" onClick={onUpgradeClick}>
-          <div className="absolute -top-24 -right-24 w-48 h-48 bg-yellow-500/10 rounded-full blur-3xl group-hover:bg-yellow-500/20 transition-colors"></div>
-          <div className="relative z-10">
-            <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-yellow-200 mb-2 flex items-center gap-2">
-              <Crown className="w-6 h-6 text-yellow-400" />
-              Upgrade to PRO
-            </h3>
-            <p className="text-yellow-200/70 font-medium">Get Unlimited Energy & Exclusive VIP Features</p>
-          </div>
-          <button className="relative z-10 bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-900 font-bold px-6 py-3 rounded-xl shadow-lg shadow-yellow-500/20 hover:scale-[1.02] transition-transform flex items-center gap-2 cursor-pointer">
-            Unlock Now
-          </button>
-        </div>
-      )}
-
-      {deleteError && (
-        <div className="mb-6 p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-start gap-3">
-          <AlertTriangle className="w-6 h-6 text-rose-400 shrink-0" />
-          <p className="text-rose-300 text-sm">{deleteError}</p>
-        </div>
-      )}
-
-      <div className="bg-slate-800 rounded-3xl border border-slate-700 overflow-hidden shadow-xl p-6 mb-8">
-        <div className="flex items-center gap-2 mb-6">
-          <Activity className="w-5 h-5 text-amber-400" />
-          <h2 className="text-xl font-bold text-white">কুইজ হিস্ট্রি (Quiz History)</h2>
-        </div>
-
-        {loading ? (
-          <div className="flex flex-col items-center justify-center py-10">
-            <Loader2 className="w-8 h-8 text-emerald-400 animate-spin mb-4" />
-            <p className="text-slate-400">ডাটা লোড হচ্ছে...</p>
-          </div>
-        ) : results.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 text-center">
-            <div className="w-16 h-16 bg-slate-700/50 rounded-full flex items-center justify-center mb-4">
-              <Activity className="w-8 h-8 text-slate-500" />
-            </div>
-            <h3 className="text-xl font-bold text-slate-300 mb-2">আপনি এখনো কোনো কুইজ খেলেননি</h3>
-            <p className="text-slate-500 text-sm">কুইজ খেলা শুরু করুন এবং আপনার ফলাফল এখানে দেখুন।</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-900/50 border-b border-slate-700">
-                  <th className="px-6 py-4 text-slate-400 font-semibold text-sm uppercase tracking-wider">বিষয় (Subject/Topic)</th>
-                  <th className="px-6 py-4 text-slate-400 font-semibold text-sm uppercase tracking-wider text-center">স্কোর</th>
-                  <th className="px-6 py-4 text-slate-400 font-semibold text-sm uppercase tracking-wider text-right">তারিখ</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700/50">
-                {results.map((entry) => {
-                  const dateInfo = entry.createdAt?.toDate ? entry.createdAt.toDate().toLocaleDateString('bn-BD', {
-                    year: 'numeric', month: 'long', day: 'numeric',
-                    hour: '2-digit', minute: '2-digit'
-                  }) : 'Unknown date';
-
-                  return (
-                    <tr key={entry.id} className="hover:bg-slate-700/30 transition-colors">
-                      <td className="px-6 py-4">
-                        <span className="text-white font-medium">{entry.subjectName}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        <span className="text-emerald-400 font-bold text-lg">{entry.score}</span>
-                        <span className="text-slate-500 text-sm"> / {entry.totalQuestions}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-slate-400 text-sm">
-                        {dateInfo}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
           </div>
         )}
       </div>
 
-      <div className="mt-8 border-t border-slate-700 pt-8 flex flex-col items-start gap-4">
-        <h3 className="text-lg font-bold text-rose-400 flex items-center gap-2">
-          <Trash2 className="w-5 h-5" />
-          ডেঞ্জার জোন (Danger Zone)
-        </h3>
-        <p className="text-slate-400 text-sm max-w-2xl">
-          আপনি যদি আপনার অ্যাকাউন্ট মুছে ফেলেন, তবে আপনার প্রোফাইল, সমস্ত কুইজ ডাটা এবং স্কোর চিরতরে মুছে যাবে। এই কাজটি আর ফিরিয়ে আনা যাবে না।
-        </p>
-        <button
-          onClick={handleDeleteAccount}
-          disabled={deleting}
-          className="mt-2 flex items-center gap-2 px-5 py-2.5 bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white rounded-lg transition-colors border border-rose-500/30 font-medium cursor-pointer"
-        >
-          {deleting ? (
-            <Loader2 className="w-5 h-5 animate-spin" />
-          ) : (
-            <Trash2 className="w-5 h-5" />
-          )}
-          {deleting ? 'মুছে ফেলা হচ্ছে...' : 'আমার অ্যাকাউন্ট ডিলিট করুন'}
-        </button>
-      </div>
+      {/* DELETE ACCOUNT CONFIRMATION MODAL */}
+      {showDeleteConfirmModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl space-y-5">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="p-3 bg-rose-500/10 rounded-2xl border border-rose-500/20">
+                <ShieldAlert className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-extrabold text-white">অ্যাকাউন্ট ডিলিট নিশ্চিতকরণ</h3>
+                <p className="text-xs text-rose-300">এই কাজটিকে আর পূর্বাবস্থায় ফিরিয়ে আনা যাবে না</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed bg-slate-950 p-4 rounded-2xl border border-slate-800">
+              আপনি যদি আপনার অ্যাকাউন্ট মুছে ফেলেন, তবে আপনার প্রোফাইল, সমস্ত কুইজ ডাটা এবং সংরক্ষণ চিরতরে মুছে যাবে।
+            </p>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setShowDeleteConfirmModal(false)}
+                disabled={deleting}
+                className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-2xl text-xs border border-slate-700 cursor-pointer transition-colors"
+              >
+                বাতিল করুন
+              </button>
+              <button
+                onClick={handleDeleteAccount}
+                disabled={deleting}
+                className="flex-1 py-3 bg-rose-600 hover:bg-rose-500 text-white font-extrabold rounded-2xl text-xs shadow-lg shadow-rose-600/20 flex items-center justify-center gap-2 cursor-pointer transition-colors"
+              >
+                {deleting && <Loader2 className="w-4 h-4 animate-spin" />}
+                <span>{deleting ? 'ডিলিট হচ্ছে...' : 'হাঁ, ডিলিট করুন'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

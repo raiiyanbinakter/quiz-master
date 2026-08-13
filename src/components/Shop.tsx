@@ -1,17 +1,101 @@
 import React, { useState } from 'react';
-import { ShoppingBag, Diamond, Flame, Lock, CheckCircle2, Crown, Sparkles } from 'lucide-react';
-import { doc, runTransaction } from 'firebase/firestore';
+import { ArrowLeft, CheckCircle2, Lock, Sparkles, Info, Palette } from 'lucide-react';
+import { doc, updateDoc, setDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '../firebase';
 import UserAvatar from './UserAvatar';
 
-const AVATARS = [
-  { id: 'avatar_bot', name: 'Cyber Bot', cost: 500, type: 'coins' as const, image: 'https://api.dicebear.com/7.x/bottts/svg?seed=bot' },
-  { id: 'avatar_ninja', name: 'Ninja', cost: 1000, type: 'coins' as const, image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=ninja' },
+interface AvatarItem {
+  id: string;
+  name: string;
+  image: string;
+  conditionText: string;
+  isUnlockedByCondition: (userData: any) => boolean;
+}
+
+interface BorderItem {
+  id: string;
+  name: string;
+  conditionText: string;
+  isUnlockedByCondition: (userData: any) => boolean;
+}
+
+const AVATARS: AvatarItem[] = [
+  {
+    id: 'avatar_default',
+    name: 'ডিফল্ট অ্যাভাটার',
+    image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix',
+    conditionText: 'ডিফল্ট (সবার জন্য মুক্ত)',
+    isUnlockedByCondition: () => true
+  },
+  {
+    id: 'avatar_bot',
+    name: 'সাইবার লার্নার',
+    image: 'https://api.dicebear.com/7.x/bottts/svg?seed=bot',
+    conditionText: 'প্রথম অনুশীলন সম্পূর্ণ করুন',
+    isUnlockedByCondition: (userData) => 
+      userData?.purchasedItems?.includes('avatar_bot') || (userData?.unlockedChapters || []).length > 0
+  },
+  {
+    id: 'avatar_ninja',
+    name: 'স্টাডি নিনজা',
+    image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=ninja',
+    conditionText: 'টানা ৩ দিন অর্থবহ পড়াশোনা করুন',
+    isUnlockedByCondition: (userData) => 
+      userData?.purchasedItems?.includes('avatar_ninja') || (userData?.currentStreak || 0) >= 3
+  },
+  {
+    id: 'avatar_scholar',
+    name: 'মেধা অর্জক',
+    image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=scholar',
+    conditionText: 'ডাউট সহায়তায় একটি সহায়ক উত্তর দিন',
+    isUnlockedByCondition: (userData) => 
+      userData?.purchasedItems?.includes('avatar_scholar') || (userData?.mentorStats?.answerCount || 0) > 0
+  },
+  {
+    id: 'avatar_master',
+    name: 'রুটিন মাস্টার',
+    image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=master',
+    conditionText: '৭ দিনের রুটিন সম্পন্ন করুন',
+    isUnlockedByCondition: (userData) => 
+      userData?.purchasedItems?.includes('avatar_master')
+  }
 ];
 
-const BORDERS = [
-  { id: 'border_neon', name: 'Neon Glow', cost: 50, type: 'gems' as const },
-  { id: 'border_gold', name: 'Golden Flame', cost: 100, type: 'gems' as const },
+const BORDERS: BorderItem[] = [
+  {
+    id: 'border_none',
+    name: 'ডিফল্ট (কোনো বর্ডার নেই)',
+    conditionText: 'ডিফল্ট (সবার জন্য মুক্ত)',
+    isUnlockedByCondition: () => true
+  },
+  {
+    id: 'border_neon',
+    name: 'নিয়োন গ্লো',
+    conditionText: 'প্রথম অনুশীলন কুইজ সম্পন্ন করুন',
+    isUnlockedByCondition: (userData) => 
+      userData?.purchasedItems?.includes('border_neon') || (userData?.unlockedChapters || []).length > 0
+  },
+  {
+    id: 'border_gold',
+    name: 'গোল্ডেন ফ্লেম',
+    conditionText: 'টানা ৩ দিন অর্থবহ পড়াশোনা করুন',
+    isUnlockedByCondition: (userData) => 
+      userData?.purchasedItems?.includes('border_gold') || (userData?.currentStreak || 0) >= 3
+  },
+  {
+    id: 'border_emerald',
+    name: 'এমোরাল্ড শাইন',
+    conditionText: 'ডাউট সহায়তায় একটি সেরা উত্তর দিন',
+    isUnlockedByCondition: (userData) => 
+      userData?.purchasedItems?.includes('border_emerald') || (userData?.mentorStats?.acceptedAnswers || 0) > 0
+  },
+  {
+    id: 'border_violet',
+    name: 'রয়েল নাইট',
+    conditionText: 'শিগগিরই আনলক করা যাবে',
+    isUnlockedByCondition: (userData) => 
+      userData?.purchasedItems?.includes('border_violet')
+  }
 ];
 
 interface ShopProps {
@@ -23,196 +107,240 @@ interface ShopProps {
 
 export default function Shop({ user, userData, onUserDataUpdate, onBack }: ShopProps) {
   const [activeTab, setActiveTab] = useState<'avatars' | 'borders'>('avatars');
-  const [processingId, setProcessingId] = useState<string | null>(null);
+  const [equipLoading, setEquipLoading] = useState<string | null>(null);
 
-  const purchasedItems = userData?.purchasedItems || ['avatar_default'];
-  const equippedAvatar = userData?.equippedAvatar;
-  const equippedBorder = userData?.equippedBorder;
+  const purchasedItems: string[] = userData?.purchasedItems || ['avatar_default', 'border_none'];
+  const equippedAvatar = userData?.equippedAvatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix';
+  const equippedBorder = userData?.equippedBorder || 'border_none';
 
-  const handlePurchase = async (itemId: string, cost: number, currencyType: 'coins' | 'gems') => {
-    if (!user) return;
-    
-    if (currencyType === 'coins' && (userData.coins || 0) < cost) {
-      alert('Not enough Coins!');
-      return;
-    }
-    if (currencyType === 'gems' && (userData.gems || 0) < cost) {
-      alert('Not enough Gems!');
-      return;
-    }
+  const handleEquipAvatar = async (avatar: AvatarItem) => {
+    if (!user?.uid) return;
+    setEquipLoading(avatar.id);
 
-    setProcessingId(itemId);
     try {
-      await runTransaction(db, async (transaction) => {
-        const userRef = doc(db, 'users', user.uid);
-        const userDoc = await transaction.get(userRef);
-        const udata = userDoc.data();
-        if (!udata) throw new Error('User not found');
-        
-        if (currencyType === 'coins' && udata.coins < cost) throw new Error('Not enough coins');
-        if (currencyType === 'gems' && udata.gems < cost) throw new Error('Not enough gems');
+      const updates: any = {
+        equippedAvatar: avatar.image
+      };
 
-        const currentPurchased = udata.purchasedItems || ['avatar_default'];
-        if (currentPurchased.includes(itemId)) throw new Error('Already purchased');
+      if (!purchasedItems.includes(avatar.id)) {
+        updates.purchasedItems = arrayUnion(avatar.id);
+      }
 
-        const updates: any = {
-          purchasedItems: [...currentPurchased, itemId]
-        };
-        
-        if (currencyType === 'coins') updates.coins = udata.coins - cost;
-        if (currencyType === 'gems') updates.gems = udata.gems - cost;
+      const userRef = doc(db, 'users', user.uid);
+      await setDoc(userRef, updates, { merge: true });
 
-        transaction.update(userRef, updates);
-      });
-
-      // Update local state
-      const newItems = [...purchasedItems, itemId];
+      const newPurchased = Array.from(new Set([...purchasedItems, avatar.id]));
       onUserDataUpdate({
         ...userData,
-        purchasedItems: newItems,
-        coins: currencyType === 'coins' ? userData.coins - cost : userData.coins,
-        gems: currencyType === 'gems' ? userData.gems - cost : userData.gems
+        equippedAvatar: avatar.image,
+        purchasedItems: newPurchased
       });
-      alert('Purchase successful!');
-    } catch (e: any) {
-      alert(e.message || 'Error processing purchase');
+    } catch (err) {
+      console.error('Error equipping avatar:', err);
     } finally {
-      setProcessingId(null);
+      setEquipLoading(null);
     }
   };
 
-  const handleEquip = async (itemId: string, type: 'avatar' | 'border', image?: string) => {
-    if (!user) return;
-    const userRef = doc(db, 'users', user.uid);
-    const updates: any = {};
-    if (type === 'avatar' && image) {
-      updates.equippedAvatar = image;
-    } else if (type === 'border') {
-      updates.equippedBorder = itemId;
-    }
+  const handleEquipBorder = async (border: BorderItem) => {
+    if (!user?.uid) return;
+    setEquipLoading(border.id);
 
     try {
-      await runTransaction(db, async (transaction) => {
-        transaction.update(userRef, updates);
+      const targetBorderId = border.id === 'border_none' ? '' : border.id;
+      const updates: any = {
+        equippedBorder: targetBorderId
+      };
+
+      if (!purchasedItems.includes(border.id)) {
+        updates.purchasedItems = arrayUnion(border.id);
+      }
+
+      const userRef = doc(db, 'users', user.uid);
+      await setDoc(userRef, updates, { merge: true });
+
+      const newPurchased = Array.from(new Set([...purchasedItems, border.id]));
+      onUserDataUpdate({
+        ...userData,
+        equippedBorder: targetBorderId,
+        purchasedItems: newPurchased
       });
-      onUserDataUpdate({ ...userData, ...updates });
-    } catch (e: any) {
-      alert('Error equipping item');
+    } catch (err) {
+      console.error('Error equipping border:', err);
+    } finally {
+      setEquipLoading(null);
     }
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8 animate-in fade-in duration-300">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
-        <div>
-          <h1 className="text-3xl font-black text-white flex items-center gap-3">
-            <ShoppingBag className="w-8 h-8 text-emerald-400" />
-            Loot Shop
-          </h1>
-          <p className="text-slate-400 mt-1">Upgrade your look and show off your status</p>
+    <div className="max-w-4xl mx-auto px-4 py-8 space-y-6 animate-in fade-in duration-300">
+      
+      {/* 1. HEADER */}
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={onBack}
+            className="p-2.5 bg-slate-800 hover:bg-slate-700 rounded-2xl transition-colors text-slate-300 hover:text-white cursor-pointer"
+            title="ফিরে যান"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div>
+            <h1 className="text-2xl md:text-3xl font-extrabold text-white flex items-center gap-2.5">
+              <Palette className="w-6 h-6 text-indigo-400" />
+              প্রোফাইল সাজান
+            </h1>
+            <p className="text-xs md:text-sm text-slate-400 mt-1">
+              অ্যাভাটার ও বর্ডার দিয়ে প্রোফাইলকে নিজের মতো সাজান।
+            </p>
+          </div>
         </div>
-        <div className="flex bg-slate-800 p-1 rounded-xl border border-slate-700 w-full md:w-auto">
+
+        {/* Tab Buttons */}
+        <div className="flex bg-slate-950 p-1.5 rounded-2xl border border-slate-800 w-full md:w-auto">
           <button
             onClick={() => setActiveTab('avatars')}
-            className={`flex-1 md:flex-none px-6 py-2 rounded-lg font-medium transition-colors ${activeTab === 'avatars' ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}
+            className={`flex-1 md:flex-none px-5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'avatars' 
+                ? 'bg-indigo-600 text-white shadow-md' 
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
           >
-            Cool Avatars
+            অ্যাভাটার
           </button>
           <button
             onClick={() => setActiveTab('borders')}
-            className={`flex-1 md:flex-none px-6 py-2 rounded-lg font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'borders' ? 'bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-900 shadow-lg shadow-yellow-500/20' : 'bg-slate-800 text-slate-400 hover:text-yellow-400'}`}
+            className={`flex-1 md:flex-none px-5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'borders' 
+                ? 'bg-indigo-600 text-white shadow-md' 
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
           >
-            <Crown className="w-4 h-4" /> VIP Borders
+            প্রোফাইল বর্ডার
           </button>
         </div>
       </div>
 
+      {/* 2. EXPLANATION BANNER */}
+      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex items-start gap-3 text-xs text-slate-300 leading-relaxed shadow-sm">
+        <Info className="w-5 h-5 text-indigo-400 shrink-0 mt-0.5" />
+        <p>
+          অ্যাভাটার ও বর্ডার আপনার প্রোফাইলকে ব্যক্তিগত করে। এগুলো পড়ার সুযোগ, র্যাঙ্ক বা উত্তর-মান পরিবর্তন করে না।
+        </p>
+      </div>
+
+      {/* 3. AVATARS TAB */}
       {activeTab === 'avatars' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {AVATARS.map(avatar => {
-            const isPurchased = purchasedItems.includes(avatar.id);
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
+          {AVATARS.map((avatar) => {
+            const isUnlocked = avatar.isUnlockedByCondition(userData);
             const isEquipped = equippedAvatar === avatar.image;
+            const isLoading = equipLoading === avatar.id;
+
             return (
-              <div key={avatar.id} className="bg-slate-800 border border-slate-700 rounded-3xl p-6 relative overflow-hidden group hover:border-orange-500/50 transition-colors">
-                <div className="flex justify-center mb-6">
-                  <UserAvatar url={avatar.image} borderId={userData?.equippedBorder} className="w-24 h-24" />
+              <div 
+                key={avatar.id} 
+                className={`bg-slate-900 border ${
+                  isEquipped ? 'border-emerald-500/50' : 'border-slate-800'
+                } rounded-3xl p-6 flex flex-col justify-between transition-all relative overflow-hidden`}
+              >
+                <div>
+                  <div className="flex justify-center mb-5 py-2">
+                    <UserAvatar url={avatar.image} borderId={equippedBorder} className="w-24 h-24" />
+                  </div>
+                  <h3 className="text-base font-extrabold text-white text-center mb-1">
+                    {avatar.name}
+                  </h3>
                 </div>
-                <h3 className="text-xl font-bold text-white text-center mb-4">{avatar.name}</h3>
-                
-                {isEquipped ? (
-                  <button disabled className="w-full bg-emerald-500/20 text-emerald-400 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 border border-emerald-500/30">
-                    <CheckCircle2 className="w-5 h-5" /> Equipped
-                  </button>
-                ) : isPurchased ? (
-                  <button onClick={() => handleEquip(avatar.id, 'avatar', avatar.image)} className="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 px-4 rounded-xl transition-colors">
-                    Equip
-                  </button>
-                ) : (
-                  <button 
-                    onClick={() => handlePurchase(avatar.id, avatar.cost, avatar.type)}
-                    disabled={processingId === avatar.id}
-                    className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 disabled:opacity-50 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-orange-500/20 hover:scale-[1.02]"
-                  >
-                    {processingId === avatar.id ? 'Processing...' : (
-                      <>
-                        <Flame className="w-5 h-5 text-yellow-200" />
-                        {avatar.cost} Coins
-                      </>
-                    )}
-                  </button>
-                )}
+
+                <div className="mt-4 space-y-3 pt-3 border-t border-slate-800">
+                  {isEquipped ? (
+                    <button disabled className="w-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-extrabold py-2.5 rounded-xl flex items-center justify-center gap-2 text-xs">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>সক্রিয় রয়েছে</span>
+                    </button>
+                  ) : isUnlocked ? (
+                    <button 
+                      onClick={() => handleEquipAvatar(avatar)}
+                      disabled={isLoading}
+                      className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-2.5 rounded-xl text-xs transition-colors cursor-pointer shadow-lg shadow-indigo-600/20 disabled:opacity-50"
+                    >
+                      {isLoading ? 'সক্রিয় হচ্ছে...' : 'ব্যবহার করুন'}
+                    </button>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="text-[11px] text-slate-400 bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center flex items-center justify-center gap-1.5 font-medium">
+                        <Lock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <span>{avatar.conditionText}</span>
+                      </div>
+                      <button disabled className="w-full bg-slate-800/60 text-slate-500 font-bold py-2.5 rounded-xl text-xs cursor-not-allowed border border-slate-800">
+                        লক্ষ্য পূরণ করুন
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
       )}
 
+      {/* 4. BORDERS TAB */}
       {activeTab === 'borders' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {BORDERS.map(border => {
-            const isPurchased = purchasedItems.includes(border.id);
-            const isEquipped = equippedBorder === border.id;
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
+          {BORDERS.map((border) => {
+            const isUnlocked = border.isUnlockedByCondition(userData);
+            const isEquipped = (border.id === 'border_none' && (!equippedBorder || equippedBorder === 'border_none')) || equippedBorder === border.id;
+            const isLoading = equipLoading === border.id;
+
             return (
-              <div key={border.id} className={`bg-slate-900 border ${border.id === 'border_neon' ? 'border-cyan-500/30 hover:border-cyan-400' : 'border-yellow-500/30 hover:border-yellow-400'} rounded-3xl p-6 relative overflow-hidden group transition-all`}>
-                <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
-                <div className="flex justify-center mb-6 py-4">
-                  <UserAvatar url={equippedAvatar} borderId={border.id} className="w-24 h-24" />
+              <div 
+                key={border.id} 
+                className={`bg-slate-900 border ${
+                  isEquipped ? 'border-emerald-500/50' : 'border-slate-800'
+                } rounded-3xl p-6 flex flex-col justify-between transition-all relative overflow-hidden`}
+              >
+                <div>
+                  <div className="flex justify-center mb-5 py-2">
+                    <UserAvatar url={equippedAvatar} borderId={border.id === 'border_none' ? '' : border.id} className="w-24 h-24" />
+                  </div>
+                  <h3 className="text-base font-extrabold text-white text-center mb-1">
+                    {border.name}
+                  </h3>
                 </div>
-                <h3 className={`text-xl font-bold text-center mb-4 ${border.id === 'border_gold' ? 'text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-yellow-200' : 'text-cyan-400'}`}>{border.name}</h3>
-                
-                {isEquipped ? (
-                  <button disabled className="w-full bg-emerald-500/20 text-emerald-400 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 border border-emerald-500/30">
-                    <CheckCircle2 className="w-5 h-5" /> Equipped
-                  </button>
-                ) : isPurchased ? (
-                  <button onClick={() => handleEquip(border.id, 'border')} className="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 px-4 rounded-xl transition-colors">
-                    Equip
-                  </button>
-                ) : (
-                  <button 
-                    onClick={() => handlePurchase(border.id, border.cost, border.type)}
-                    disabled={processingId === border.id}
-                    className="w-full bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 disabled:opacity-50 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-cyan-500/20 hover:scale-[1.02]"
-                  >
-                    {processingId === border.id ? 'Processing...' : (
-                      <span className="flex items-center gap-1">
-                        <Diamond className="w-4 h-4 text-cyan-100" />
-                        {border.cost} Gems
-                      </span>
-                    )}
-                  </button>
-                )}
+
+                <div className="mt-4 space-y-3 pt-3 border-t border-slate-800">
+                  {isEquipped ? (
+                    <button disabled className="w-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-extrabold py-2.5 rounded-xl flex items-center justify-center gap-2 text-xs">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>সক্রিয় রয়েছে</span>
+                    </button>
+                  ) : isUnlocked ? (
+                    <button 
+                      onClick={() => handleEquipBorder(border)}
+                      disabled={isLoading}
+                      className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-2.5 rounded-xl text-xs transition-colors cursor-pointer shadow-lg shadow-indigo-600/20 disabled:opacity-50"
+                    >
+                      {isLoading ? 'সক্রিয় হচ্ছে...' : 'ব্যবহার করুন'}
+                    </button>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="text-[11px] text-slate-400 bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center flex items-center justify-center gap-1.5 font-medium">
+                        <Lock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <span>{border.conditionText}</span>
+                      </div>
+                      <button disabled className="w-full bg-slate-800/60 text-slate-500 font-bold py-2.5 rounded-xl text-xs cursor-not-allowed border border-slate-800">
+                        লক্ষ্য পূরণ করুন
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
-          
-          <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 flex flex-col items-center justify-center text-center opacity-50 relative overflow-hidden">
-             <Lock className="w-10 h-10 text-slate-500 mb-4" />
-             <h3 className="text-xl font-bold text-white mb-2">More Coming Soon</h3>
-             <p className="text-slate-400">Exclusive borders will be added here</p>
-          </div>
         </div>
       )}
+
     </div>
   );
 }

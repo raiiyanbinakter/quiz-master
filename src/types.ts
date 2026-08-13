@@ -1,3 +1,5 @@
+export * from './types/gamification';
+
 export interface Question {
   id: number;
   topic?: string;

@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Trophy, CheckCircle2, XCircle, Clock, RotateCcw, Home, Info, ArrowLeft, Loader2, ChevronDown, Sparkles, MessageCircle, HeartHandshake, Flame, BookOpen, Layers } from 'lucide-react';
+import { Trophy, CheckCircle2, XCircle, Clock, RotateCcw, Home, Info, ArrowLeft, Loader2, ChevronDown, Sparkles, MessageCircle, HeartHandshake, Flame, BookOpen, Layers, Calendar, Map } from 'lucide-react';
 import { collection, addDoc, serverTimestamp, writeBatch, doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { QuizSummary } from '../types';
 import { uiCopy } from '../content/uiCopy';
+import { addRevisionFromQuizResult } from '../utils/studySessionUtils';
+import { MathText } from './MathText';
 
 interface ResultProps {
   summary: QuizSummary;
@@ -20,12 +22,50 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
   const [isSaving, setIsSaving] = useState(false);
   const [hasSaved, setHasSaved] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [addedToRevision, setAddedToRevision] = useState(false);
+  const [addingToRevision, setAddingToRevision] = useState(false);
+
+  const handleAddToRevision = async () => {
+    setAddingToRevision(true);
+    try {
+      const weakConcept = detectedWeakConcepts.length > 0 ? detectedWeakConcepts[0] : null;
+      await addRevisionFromQuizResult(
+        user?.uid || null,
+        summary.quizName,
+        summary.subjectId || null,
+        (summary as any).topicId || null,
+        weakConcept
+      );
+      setAddedToRevision(true);
+    } catch (err) {
+      console.error('Error adding revision session:', err);
+    } finally {
+      setAddingToRevision(false);
+    }
+  };
   
   // Guard to prevent saving twice
   const saveAttempted = useRef(false);
 
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [expandedExplanations, setExpandedExplanations] = useState<Record<number, boolean>>({});
+  const resultsCardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (resultsCardRef.current && window.renderMathInElement) {
+      try {
+        window.renderMathInElement(resultsCardRef.current, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false },
+          ],
+          throwOnError: false,
+        });
+      } catch (e) {
+        console.error('KaTeX auto-render error in Result:', e);
+      }
+    }
+  }, [summary, expandedExplanations]);
 
   const toggleExplanation = (index: number) => {
     setExpandedExplanations(prev => ({ ...prev, [index]: !prev[index] }));
@@ -74,20 +114,28 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
         const passRate = summary.totalQuestions > 0 ? (summary.correctCount / summary.totalQuestions) : 0;
         const currentScorePercent = Math.round(passRate * 100);
 
-        if (summary.isGamified && passRate >= 0.8 && summary.subjectId && summary.chapterIndex !== undefined) {
-           const nextChapterId = `${summary.subjectId}_${summary.chapterIndex + 1}`;
-           const currentUnlocked = userData.unlockedChapters || [];
-           if (!currentUnlocked.includes(nextChapterId)) {
-             updates.unlockedChapters = [...currentUnlocked, nextChapterId];
-             updates.coins = (userData.coins || 0) + Math.floor(summary.totalScore * (userData.isPro ? 2 : 1)) + 50;
-             unlockedNewLevel = true;
-           }
-        } else if (summary.isGamified && passRate < 0.8 && summary.subjectId && summary.chapterIndex !== undefined) {
-           // Save chapter under Rescue Path status
+        if (summary.subjectId && summary.chapterIndex !== undefined) {
            const chapterId = `${summary.subjectId}_${summary.chapterIndex}`;
            const currentRescues = userData.rescueChapters || [];
-           if (!currentRescues.includes(chapterId)) {
-             updates.rescueChapters = [...currentRescues, chapterId];
+           
+           if (passRate >= 0.8) {
+             // Unlock next chapter if gamified
+             const nextChapterId = `${summary.subjectId}_${summary.chapterIndex + 1}`;
+             const currentUnlocked = userData.unlockedChapters || [];
+             if (!currentUnlocked.includes(nextChapterId)) {
+               updates.unlockedChapters = [...currentUnlocked, nextChapterId];
+               updates.coins = (userData.coins || 0) + Math.floor(summary.totalScore * (userData.isPro ? 2 : 1)) + 50;
+               unlockedNewLevel = true;
+             }
+             // If previously in rescue list, remove it as it's now mastered
+             if (currentRescues.includes(chapterId)) {
+               updates.rescueChapters = currentRescues.filter((rc: string) => rc !== chapterId);
+             }
+           } else {
+             // Save chapter under revision needed
+             if (!currentRescues.includes(chapterId)) {
+               updates.rescueChapters = [...currentRescues, chapterId];
+             }
            }
         }
         
@@ -294,28 +342,54 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
             </div>
           </div>
           
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+            <button
+              onClick={handleAddToRevision}
+              disabled={addedToRevision || addingToRevision}
+              className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold text-xs sm:text-sm py-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-amber-500/20 cursor-pointer disabled:opacity-80"
+            >
+              <Calendar className="w-4.5 h-4.5" />
+              {addedToRevision ? '✓ আগামীকালের রিভিশনে যোগ করা হয়েছে' : addingToRevision ? 'যোগ হচ্ছে...' : 'আগামী রিভিশনে যোগ করুন'}
+            </button>
+
             <button
               onClick={() => onAskMentorHelp?.(summary.quizName)}
-              className="w-full bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white font-black text-sm py-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-rose-500/10 cursor-pointer"
+              className="w-full bg-slate-800 hover:bg-slate-700 text-white font-extrabold text-xs sm:text-sm py-4 rounded-xl flex items-center justify-center gap-2 transition-all border border-slate-700 cursor-pointer"
             >
-              <MessageCircle className="w-4.5 h-4.5" />
+              <MessageCircle className="w-4.5 h-4.5 text-rose-400" />
               {uiCopy.result.rescueOptionBtn}
             </button>
             
             <button
               onClick={onRetry}
-              className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-sm py-4 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer"
+              className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs sm:text-sm py-4 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer"
             >
               <RotateCcw className="w-4.5 h-4.5 text-rose-400" />
-              আবার পরীক্ষা দিন (Retry Mission)
+              আবার পরীক্ষা দিন
             </button>
           </div>
         </div>
       )}
 
       {/* Actions */}
-      <div className="flex gap-4 mb-12">
+      <div className="flex flex-col sm:flex-row gap-4 mb-12">
+        <button
+          onClick={handleAddToRevision}
+          disabled={addedToRevision || addingToRevision}
+          className="flex-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold py-4 rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 cursor-pointer disabled:opacity-80"
+        >
+          <Calendar className="w-5 h-5" />
+          {addedToRevision ? '✓ আগামীকালের রিভিশনে যোগ করা হয়েছে' : addingToRevision ? 'যোগ হচ্ছে...' : 'আগামী রিভিশনে যোগ করুন'}
+        </button>
+
+        <button
+          onClick={onBack}
+          className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 rounded-2xl transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-indigo-600/20"
+        >
+          <Map className="w-5 h-5" />
+          পড়ার অগ্রগতি দেখুন
+        </button>
+
         <button
           onClick={onRetry}
           className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold py-4 rounded-2xl transition-colors flex items-center justify-center gap-2 cursor-pointer"
@@ -339,7 +413,7 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
           <h3 className="text-xl font-bold text-white">{uiCopy.result.reviewSection}</h3>
         </div>
 
-        <div className="space-y-6">
+        <div ref={resultsCardRef} className="space-y-6">
           {summary.results.map((result, index) => (
             <div key={index} className="bg-slate-800 rounded-2xl p-6 border border-slate-700 animate-in fade-in duration-200">
               <div className="flex gap-4 mb-4">
@@ -347,7 +421,7 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
                   {index + 1}
                 </div>
                 <h4 className="text-lg font-medium text-white leading-relaxed">
-                  {result.questionText}
+                  <MathText text={result.questionText} />
                 </h4>
               </div>
 
@@ -367,7 +441,7 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
                   return (
                     <div key={optIdx} className={`flex items-center gap-2 ${optClass}`}>
                       <div className={`w-2 h-2 rounded-full ${option === result.correctAnswer ? 'bg-emerald-400' : option === result.selectedOption ? 'bg-rose-400' : 'bg-slate-600'}`}></div>
-                      <span>{option}</span>
+                      <span><MathText text={option} /></span>
                       {Icon && <Icon className="w-4 h-4" />}
                     </div>
                   );
@@ -391,7 +465,7 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
                         <div className="flex items-start gap-2">
                           <p className="text-sm text-slate-300 leading-relaxed">
                             <span className="font-semibold text-blue-400">{uiCopy.result.explanation}: </span>
-                            {result.explanation}
+                            <MathText text={result.explanation} />
                           </p>
                         </div>
                       </div>

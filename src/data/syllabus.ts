@@ -41,7 +41,7 @@ export const syllabus: Subject[] = [
       '৫. বিন্যাস ও সমাবেশ', '৬. ত্রিকোণমিতিক অনুপাত', '৭. সংযুক্ত কোণের ত্রিকোণমিতিক অনুপাত',
       '৮. ফাংশন ও ফাংশনের লেখচিত্র', '৯. অন্তরীকরণ', '১০. যোগজীকরণ'
     ],
-    activeChapters: []
+    activeChapters: [8]
   },
   {
     id: 'math2',
@@ -90,7 +90,7 @@ export const syllabus: Subject[] = [
       '৫. কাজ, শক্তি ও ক্ষমতা', '৬. মহাকর্ষ ও অভিকর্ষ', '৭. পদার্থের গাঠনিক ধর্ম',
       '৮. পর্যাবৃত্তিক গতি', '৯. তরঙ্গ', '১০. আদর্শ গ্যাস ও গ্যাসের গতিতত্ত্ব'
     ],
-    activeChapters: [1]
+    activeChapters: [1, 3, 5]
   },
   {
     id: 'phys2',
@@ -105,6 +105,37 @@ export const syllabus: Subject[] = [
       '১০. সেমিকন্ডাক্টর ও ইলেকট্রনিক্স', '১১. জ্যোতির্বিজ্ঞান'
     ],
     activeChapters: []
+  },
+  {
+    id: 'english',
+    name: 'ইংরেজি',
+    icon: 'Languages',
+    color: 'from-amber-900/50 to-slate-800',
+    category: 'মেডিকেল প্রস্তুতি',
+    chapters: [
+      '১. Parts of Speech & Identification',
+      '২. Tense & Subject-Verb Agreement',
+      '৩. Voice & Narration',
+      '৪. Preposition & Idioms',
+      '৫. Synonym, Antonym & Vocabulary',
+      '৬. Sentence Correction & Medical Context'
+    ],
+    activeChapters: [0, 1]
+  },
+  {
+    id: 'gk',
+    name: 'সাধারণ জ্ঞান',
+    icon: 'Globe',
+    color: 'from-rose-900/50 to-slate-800',
+    category: 'মেডিকেল প্রস্তুতি',
+    chapters: [
+      '১. ইতিহাস ও মুক্তিযুদ্ধ',
+      '২. বাংলাদেশ বিষয়াবলী & অর্থনীতি',
+      '৩. ভৌগোলিক অবস্থান ও মানচিত্র',
+      '৪. আন্তর্জাতিক বিষয়াবলী & সংস্থা',
+      '৫. স্বাস্থ্য খাত ও চিকিৎসা বিষয়ক তথ্য'
+    ],
+    activeChapters: [0, 1]
   },
 
   // GST Admission Test
@@ -209,3 +240,10 @@ export const syllabus: Subject[] = [
     activeChapters: []
   }
 ];
+
+export const MEDICAL_SUBJECT_IDS = ['bio1', 'bio2', 'chem1', 'chem2', 'phys1', 'phys2', 'english', 'gk'];
+
+export function getMedicalSubjects(): Subject[] {
+  return syllabus.filter(s => MEDICAL_SUBJECT_IDS.includes(s.id));
+}
+

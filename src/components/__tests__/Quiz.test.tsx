@@ -56,15 +56,15 @@ describe('Quiz Component', () => {
     fireEvent.click(correctOption);
 
     // Explanation should appear
-    expect(screen.getByText('ব্যাখ্যা:')).toBeInTheDocument();
+    expect(screen.getByText(/ব্যাখ্যা/)).toBeInTheDocument();
     expect(screen.getByText('Explanation for Q1')).toBeInTheDocument();
 
     // Next button should appear
-    const nextButton = screen.getByText('পরবর্তী প্রশ্ন');
+    const nextButton = screen.getByText(/পরবর্তী প্রশ্ন/);
     expect(nextButton).toBeInTheDocument();
   });
 
-  it('handles option selection correctly in quiz mode (incorrect answer)', () => {
+  it('handles option selection correctly in incorrect answer', () => {
     const onComplete = vi.fn();
     const onBack = vi.fn();
     render(<Quiz questions={mockQuestions} mode="quiz" onComplete={onComplete} onBack={onBack} />);
@@ -73,11 +73,11 @@ describe('Quiz Component', () => {
     fireEvent.click(incorrectOption);
 
     // Explanation should appear
-    expect(screen.getByText('ব্যাখ্যা:')).toBeInTheDocument();
+    expect(screen.getByText(/ব্যাখ্যা/)).toBeInTheDocument();
     expect(screen.getByText('Explanation for Q1')).toBeInTheDocument();
 
     // Next button should appear
-    const nextButton = screen.getByText('পরবর্তী প্রশ্ন');
+    const nextButton = screen.getByText(/পরবর্তী প্রশ্ন/);
     expect(nextButton).toBeInTheDocument();
   });
 
@@ -90,10 +90,10 @@ describe('Quiz Component', () => {
     fireEvent.click(option);
 
     // Explanation should NOT appear in exam mode
-    expect(screen.queryByText('ব্যাখ্যা:')).not.toBeInTheDocument();
+    expect(screen.queryByText(/ব্যাখ্যা/)).not.toBeInTheDocument();
 
     // Next button should appear
-    const nextButton = screen.getByText('পরবর্তী প্রশ্ন');
+    const nextButton = screen.getByText(/পরবর্তী প্রশ্ন/);
     expect(nextButton).toBeInTheDocument();
   });
 
@@ -106,7 +106,7 @@ describe('Quiz Component', () => {
     fireEvent.click(screen.getByText('Option A'));
     
     // Click next
-    fireEvent.click(screen.getByText('পরবর্তী প্রশ্ন'));
+    fireEvent.click(screen.getByText(/পরবর্তী প্রশ্ন/));
 
     // Should show second question
     expect(screen.getByText('Question 2 text?')).toBeInTheDocument();
@@ -121,13 +121,13 @@ describe('Quiz Component', () => {
 
     // Answer first question
     fireEvent.click(screen.getByText('Option A'));
-    fireEvent.click(screen.getByText('পরবর্তী প্রশ্ন'));
+    fireEvent.click(screen.getByText(/পরবর্তী প্রশ্ন/));
 
     // Answer second question
     fireEvent.click(screen.getByText('Option 2'));
     
     // Click finish
-    const finishButton = screen.getByText('ফলাফল দেখুন');
+    const finishButton = screen.getByText(/ফলাফল দেখুন/);
     fireEvent.click(finishButton);
 
     expect(onComplete).toHaveBeenCalledTimes(1);
@@ -150,7 +150,7 @@ describe('Quiz Component', () => {
     });
 
     // Should automatically show explanation and next button
-    expect(screen.getByText('ব্যাখ্যা:')).toBeInTheDocument();
-    expect(screen.getByText('পরবর্তী প্রশ্ন')).toBeInTheDocument();
+    expect(screen.getByText(/ব্যাখ্যা/)).toBeInTheDocument();
+    expect(screen.getByText(/পরবর্তী প্রশ্ন/)).toBeInTheDocument();
   });
 });

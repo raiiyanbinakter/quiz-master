@@ -61,10 +61,16 @@ export default function DoubtArena({
   const [posting, setPosting] = useState(false);
 
   // Detail state
-  const [selectedDoubt, setSelectedDoubt] = useState<any>(null);
+  const [selectedDoubtId, setSelectedDoubtId] = useState<string | null>(null);
   const [answers, setAnswers] = useState<any[]>([]);
   const [answerText, setAnswerText] = useState('');
   const [answering, setAnswering] = useState(false);
+
+  // Dynamically derive selectedDoubt from doubts collection and selectedDoubtId
+  const selectedDoubt = React.useMemo(() => {
+    if (!selectedDoubtId) return null;
+    return doubts.find(d => d.id === selectedDoubtId) || null;
+  }, [doubts, selectedDoubtId]);
 
   // Dynamically compute syllabus map from prop
   const doubtSyllabus = React.useMemo(() => {
@@ -85,24 +91,19 @@ export default function DoubtArena({
       const dbts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setDoubts(dbts);
       setLoading(false);
-      
-      if (selectedDoubt) {
-        const updatedSelected = dbts.find(d => d.id === selectedDoubt.id);
-        if (updatedSelected) setSelectedDoubt(updatedSelected);
-      }
     });
     return unsubscribe;
-  }, [selectedDoubt]);
+  }, []);
 
   useEffect(() => {
-    if (view === 'detail' && selectedDoubt && selectedDoubt.type === 'doubt') {
-      const q = query(collection(db, `doubts/${selectedDoubt.id}/answers`), orderBy('upvotes', 'desc'), orderBy('timestamp', 'asc'));
+    if (view === 'detail' && selectedDoubtId && selectedDoubt?.type === 'doubt') {
+      const q = query(collection(db, `doubts/${selectedDoubtId}/answers`), orderBy('upvotes', 'desc'), orderBy('timestamp', 'asc'));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         setAnswers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       });
       return unsubscribe;
     }
-  }, [view, selectedDoubt]);
+  }, [view, selectedDoubtId, selectedDoubt?.type]);
 
   const handlePostDoubt = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -198,7 +199,7 @@ export default function DoubtArena({
       setPostChapter('');
       setView('feed');
     } catch (e: any) {
-      alert(e.message || 'Error posting to Rescue Board.');
+      alert(e.message || 'Error posting to Doubt Arena.');
     } finally {
       setPosting(false);
     }
@@ -318,7 +319,13 @@ export default function DoubtArena({
           });
         }
       });
-      alert('সফল হয়েছে! সেরা উত্তর নির্ধারণের জন্য ১৫ কয়েন রিওয়ার্ড সংশ্লিষ্ট মেন্টরকে প্রদান করা হয়েছে।');
+      const { recordMeaningfulActionInFirestore } = await import('../lib/gamificationService');
+      await recordMeaningfulActionInFirestore(answer.answeredByUid, {
+        type: 'accepted_helpful_answer',
+        eventId: `doubt_accepted_${answer.id}`
+      });
+
+      alert('সফল হয়েছে! সেরা উত্তরটি গৃহীত হয়েছে এবং সহায়ক মেন্টরের পয়েন্ট ও অর্জন আপডেট করা হয়েছে।');
     } catch (e) {
       alert('Error marking best answer.');
     }
@@ -398,8 +405,8 @@ export default function DoubtArena({
               <ShieldAlert className="w-6 h-6 text-rose-400 animate-pulse" />
             </div>
             <div>
-              <h1 className="text-2xl font-black text-white">চ্যাপ্টার রেসকিউ বোর্ড</h1>
-              <p className="text-xs text-slate-400">অ্যাকাডেমিক ডাউট পোস্ট ও পিয়ার-টু-পিয়ার বুস্ট সাহায্য (Rescue Board & Doubt Solvers)</p>
+              <h1 className="text-2xl font-black text-white">ডাউট সহায়তা ফোরাম</h1>
+              <p className="text-xs text-slate-400">অ্যাকাডেমিক ডাউট পোস্ট ও পিয়ার-টু-পিয়ার সাহায্য</p>
             </div>
           </div>
         </div>
@@ -470,7 +477,7 @@ export default function DoubtArena({
                </select>
             </div>
             <div className="flex-1 relative w-full">
-               <label className="block text-slate-400 font-bold mb-2 text-xs">টাইপ (District Event)</label>
+               <label className="block text-slate-400 font-bold mb-2 text-xs">ক্যাটাগরি</label>
                <select
                  value={filterType}
                  onChange={e => setFilterType(e.target.value as any)}
@@ -498,7 +505,7 @@ export default function DoubtArena({
                 key={doubt.id} 
                 onClick={() => {
                   if (!isRetryRequest) {
-                    setSelectedDoubt(doubt); 
+                    setSelectedDoubtId(doubt.id); 
                     setView('detail');
                   }
                 }}

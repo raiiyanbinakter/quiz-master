@@ -1,0 +1,166 @@
+import { AnalysisSource, TopicAnalysisRecord } from '../types/topicAnalysis';
+
+export const PHYSICS_CH4_SOURCE: AnalysisSource = {
+  id: 'src_phys1_ch4_pdf',
+  title: 'Physics 1st Paper Ch 4 Past Question & Concept Analysis',
+  fileReference: 'Chapter 4 Physics 1st Paper Analysis.pdf',
+  publisher: 'Academic Editorial & Past Paper Board',
+  year: '2024-2025',
+  sourceType: 'past_question_analysis',
+  verificationStatus: 'needs_verification',
+};
+
+export const PHYSICS_CH4_TOPICS: TopicAnalysisRecord[] = [
+  {
+    id: 'rec_phys1_ch4_t1',
+    route: 'academic',
+    subjectId: 'phys1',
+    paper: 'first',
+    chapterId: 'phys1_ch4',
+    chapterTitle: 'নিউটনীয় বলবিদ্যা',
+    topicId: 'phys1_ch4_t1',
+    title: '১. বল ও বলের প্রকারভেদ',
+    learningObjectives: [
+      'মৌলিক বলের ৪টি প্রকার (মহাকর্ষ, তাড়িতচৌম্বক, সবল ও দুর্বল নিউক্লীয় বল) ও তাদের আপেক্ষিক তীব্রতা শনাক্তকরণ',
+      'স্পর্শ ও অস্পর্শ বলের বাস্তবমুখী উদাহরণ বিশ্লেষণ',
+      'প্রতিটি মৌলিক বলের বাহক কণা (গ্র্যাভিটন, ফোটন, মেসন/গ্লুওন, বোসন) স্মরণ'
+    ],
+    prerequisiteTopicIds: [],
+    coverageBand: 'high',
+    analysisSourceIds: ['src_phys1_ch4_pdf'],
+    reviewStatus: 'needs_verification',
+  },
+  {
+    id: 'rec_phys1_ch4_t2',
+    route: 'academic',
+    subjectId: 'phys1',
+    paper: 'first',
+    chapterId: 'phys1_ch4',
+    chapterTitle: 'নিউটনীয় বলবিদ্যা',
+    topicId: 'phys1_ch4_t2',
+    title: '২. নিউটনের গতিসূত্র',
+    learningObjectives: [
+      'নিউটনের ১ম, ২য় ও ৩য় গতিসূত্রের গাণিতিক ও গুণগত রূপ বোঝা',
+      'জড়তা (স্থিতি ও গতি জড়তা) এবং বলের পরিমাপ সংক্রান্ত ধারণার স্পষ্টীকরণ',
+      'প্রযুক্ত বল (F = ma) এবং ভরবেগের পরিবর্তনের হারের সম্পর্ক প্রয়োগ'
+    ],
+    prerequisiteTopicIds: ['phys1_ch4_t1'],
+    coverageBand: 'high',
+    analysisSourceIds: ['src_phys1_ch4_pdf'],
+    reviewStatus: 'needs_verification',
+  },
+  {
+    id: 'rec_phys1_ch4_t3',
+    route: 'academic',
+    subjectId: 'phys1',
+    paper: 'first',
+    chapterId: 'phys1_ch4',
+    chapterTitle: 'নিউটনীয় বলবিদ্যা',
+    topicId: 'phys1_ch4_t3',
+    title: '৩. নিউটনের গতিসূত্রের ব্যবহার',
+    learningObjectives: [
+      'লিফটে আপাত ওজন বৃদ্ধি ও হ্রাস গাণিতিকভাবে সমাধান (W = m(g ± a))',
+      'পুলি ও সুতার টান সংক্রান্ত বলের ফ্রি-বডি ডায়াগ্রাম (FBD) অঙ্কন',
+      'ঘর্ষণ বল (স্থিতি ও গতি ঘর্ষণ) ও ঘর্ষণ গুণাঙ্ক নির্ণয়'
+    ],
+    prerequisiteTopicIds: ['phys1_ch4_t2'],
+    coverageBand: 'high',
+    analysisSourceIds: ['src_phys1_ch4_pdf'],
+    reviewStatus: 'needs_verification',
+  },
+  {
+    id: 'rec_phys1_ch4_t4',
+    route: 'academic',
+    subjectId: 'phys1',
+    paper: 'first',
+    chapterId: 'phys1_ch4',
+    chapterTitle: 'নিউটনীয় বলবিদ্যা',
+    topicId: 'phys1_ch4_t4',
+    title: '৪. রৈখিক ভরবেগের নিত্যতা',
+    learningObjectives: [
+      'ভরবেগের সংরক্ষণ সূত্র প্রয়োগ করে বন্দুকে পশ্চাৎবেগ (v = -mV/M) নির্ণয়',
+      'রকেটের ধাক্কা ও ত্বরণ সংক্রান্ত গাণিতিক অনুসিদ্ধান্ত',
+      'ঘাত বল ও বলের ঘাত (J = F×Δt = Δp) পরিমাপ'
+    ],
+    prerequisiteTopicIds: ['phys1_ch4_t2'],
+    coverageBand: 'medium',
+    analysisSourceIds: ['src_phys1_ch4_pdf'],
+    reviewStatus: 'needs_verification',
+  },
+  {
+    id: 'rec_phys1_ch4_t5',
+    route: 'academic',
+    subjectId: 'phys1',
+    paper: 'first',
+    chapterId: 'phys1_ch4',
+    chapterTitle: 'নিউটনীয় বলবিদ্যা',
+    topicId: 'phys1_ch4_t5',
+    title: '৫. জড়তার ভ্রামক ও কৌণিক ভরবেগ',
+    learningObjectives: [
+      'চাকতি, সিলিন্ডার, সরু রড ও নিরেট গোলকের জড়তার ভ্রামক সূত্র (I = mk²) প্রয়োগ',
+      'কৌণিক ভরবেগের নিত্যতা সূত্র (L = Iω = constant) প্রয়োগে কৌণিক বেগ পরিবর্তনের অংক',
+      'চক্রগতির ব্যাসার্ধ (k) ও জড়তার ভ্রামকের মধ্যবর্তী সম্পর্ক নির্ণয়'
+    ],
+    prerequisiteTopicIds: ['phys1_ch4_t2'],
+    coverageBand: 'high',
+    analysisSourceIds: ['src_phys1_ch4_pdf'],
+    reviewStatus: 'needs_verification',
+  },
+  {
+    id: 'rec_phys1_ch4_t6',
+    route: 'academic',
+    subjectId: 'phys1',
+    paper: 'first',
+    chapterId: 'phys1_ch4',
+    chapterTitle: 'নিউটনীয় বলবিদ্যা',
+    topicId: 'phys1_ch4_t6',
+    title: '৬. টর্ক ও জড়তার ভ্রামকের উপপাদ্য',
+    learningObjectives: [
+      'লম্ব অক্ষ উপপাদ্য (Iz = Ix + Iy) ও সমান্তরাল অক্ষ উপপাদ্য (I = Icm + Mh²) প্রয়োগ',
+      'টর্ক (τ = r×F = Iα) এবং কৌণিক ত্বরণের সম্পর্ক স্থাপন',
+      'ঘূর্ণন গতির কাজ ও ঘূর্ণন গতিশক্তি (Ek = ½Iω²) প্রয়োগ'
+    ],
+    prerequisiteTopicIds: ['phys1_ch4_t5'],
+    coverageBand: 'high',
+    analysisSourceIds: ['src_phys1_ch4_pdf'],
+    reviewStatus: 'needs_verification',
+  },
+  {
+    id: 'rec_phys1_ch4_t7',
+    route: 'academic',
+    subjectId: 'phys1',
+    paper: 'first',
+    chapterId: 'phys1_ch4',
+    chapterTitle: 'নিউটনীয় বলবিদ্যা',
+    topicId: 'phys1_ch4_t7',
+    title: '৭. সংঘর্ষ',
+    learningObjectives: [
+      'স্থিতিস্থাপক ও অস্থিতিস্থাপক সংঘর্ষের শক্তি হ্রাস-বৃদ্ধি চিহ্নিতকরণ',
+      'দ্বিমাত্রিক ও একমাত্রিক সংঘর্ষের পর বস্তুদ্বয়ের শেষ বেগ নির্ণয়ের সমীকরণ',
+      'সংঘর্ষে গতিশক্তির অপচয় পরিমাপ'
+    ],
+    prerequisiteTopicIds: ['phys1_ch4_t4'],
+    coverageBand: 'medium',
+    analysisSourceIds: ['src_phys1_ch4_pdf'],
+    reviewStatus: 'needs_verification',
+  },
+  {
+    id: 'rec_phys1_ch4_t8',
+    route: 'academic',
+    subjectId: 'phys1',
+    paper: 'first',
+    chapterId: 'phys1_ch4',
+    chapterTitle: 'নিউটনীয় বলবিদ্যা',
+    topicId: 'phys1_ch4_t8',
+    title: '৮. কেন্দ্রমুখী ও কেন্দ্রবিমুখী বল',
+    learningObjectives: [
+      'কেন্দ্রমুখী বল (Fc = mv²/r) ও কেন্দ্রমুখী ত্বরণ (ac = v²/r) হিসাব',
+      'রাস্তার ব্যাংকিং কোণ tan θ = v² / rg এবং উঁচুকরণের উচ্চতা (h = d sin θ) সূত্র প্রয়োগ',
+      'সাইকেল আরোহীর বাক নেওয়ার সময় আনতি কোণ নির্ণয়'
+    ],
+    prerequisiteTopicIds: ['phys1_ch4_t2', 'phys1_ch4_t3'],
+    coverageBand: 'high',
+    analysisSourceIds: ['src_phys1_ch4_pdf'],
+    reviewStatus: 'needs_verification',
+  }
+];

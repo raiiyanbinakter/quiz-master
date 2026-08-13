@@ -18,11 +18,14 @@ import DoubtArena from './components/DoubtArena';
 import ProModal from './components/ProModal';
 import Shop from './components/Shop';
 import CategoryPage from './components/CategoryPage';
+import { RoutineManager } from './components/routine/RoutineManager';
 import { syllabus as staticSyllabus } from './data/syllabus';
 import { sampleChapterData } from './data/questions';
 import { bio1Chap1Data } from './data/questions_bio1_chap1';
 import { bio1Chap7Data } from './data/questions_bio1_chap7';
 import { phy1Chap2Data } from './data/questions_phy1_chap2';
+import { phy1Chap4RawQuestions } from './data/questions_phy1_chap4_newtonian';
+import { phy1Chap6RawQuestions } from './data/questions_phy1_chap6_gravity';
 import { chem1Chap2Data } from './data/questions_chem1_chap2';
 import { gstMathExam1Data } from './data/questions_gst_math_exam1';
 import { gstMathExam2Data } from './data/questions_gst_math_exam2';
@@ -42,11 +45,24 @@ import { dcuPhysicsCurrentElectricityData } from './data/questions_dcu_physics_c
 import { dcuChemQualitativeData } from './data/questions_dcu_chem_qualitative';
 import { dcuChemPeriodicPropertiesData } from './data/questions_dcu_chem_periodic_properties';
 import { dcuChemEnvironmentalData } from './data/questions_dcu_chem_environmental';
+import { math1Chap9Data } from './data/questions_math1_chap9';
 import { Subject, QuizResult, QuizSummary } from './types';
 import { ADMIN_EMAIL } from './constants';
+import RouteSetupModal from './components/RouteSetupModal';
+import { StudentGameProfile, LearningRoute } from './types/gamification';
+import { recordMeaningfulActionInFirestore } from './lib/gamificationService';
+import CalmConfirmationToast from './components/CalmConfirmationToast';
+import { recordTopicMasteryInFirestore } from './utils/topicMastery';
+import MedicalDashboard from './components/medical/MedicalDashboard';
+import MedicalQuestionBank from './components/medical/MedicalQuestionBank';
+import MedicalPastQuestions from './components/medical/MedicalPastQuestions';
+import MedicalSubjectTests from './components/medical/MedicalSubjectTests';
+import MedicalMockTests from './components/medical/MedicalMockTests';
+import MedicalModelTests from './components/medical/MedicalModelTests';
 
-type ViewState = 'home' | 'chapters' | 'topics' | 'quiz' | 'result' | 'leaderboard' | 'login' | 'signup' | 'profile' | 'admin' | 'feedback' | 'doubt-arena' | 'shop'
-  | 'category_academic' | 'category_board' | 'category_medical' | 'category_varsity';
+type ViewState = 'home' | 'chapters' | 'topics' | 'quiz' | 'result' | 'leaderboard' | 'login' | 'signup' | 'profile' | 'admin' | 'feedback' | 'doubt-arena' | 'shop' | 'routine'
+  | 'category_academic' | 'category_board' | 'category_medical' | 'category_varsity'
+  | 'medical-dashboard' | 'medical-question-bank' | 'medical-past-questions' | 'medical-subject-tests' | 'medical-mock-tests' | 'medical-model-tests';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewState>(() => {
@@ -60,12 +76,19 @@ export default function App() {
   const [selectedChapterIndex, setSelectedChapterIndex] = useState<number | null>(null);
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [quizMode, setQuizMode] = useState<'quiz' | 'exam'>('quiz');
+  const [examTimeLimitMinutes, setExamTimeLimitMinutes] = useState<number | undefined>(undefined);
+  const [examQuestionCountLimit, setExamQuestionCountLimit] = useState<number | undefined>(undefined);
+  const [customExamQuestions, setCustomExamQuestions] = useState<any[] | null>(null);
+  const [customExamTitle, setCustomExamTitle] = useState<string>('');
   const [quizSummary, setQuizSummary] = useState<QuizSummary | null>(null);
   
   const [user, setUser] = useState<User | null>(null);
   const [userData, setUserData] = useState<any>(null);
+  const [gameProfile, setGameProfile] = useState<StudentGameProfile | null>(null);
+  const [showRouteModal, setShowRouteModal] = useState<boolean>(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [showProModal, setShowProModal] = useState(false);
+  const [routineNavOptions, setRoutineNavOptions] = useState<{ openAddTask?: boolean; focusToday?: boolean }>({});
 
   // Dynamic syllabus state
   const [syllabus, setSyllabus] = useState<Subject[]>(staticSyllabus);
@@ -108,16 +131,14 @@ export default function App() {
             if (data.lastActiveDate === undefined) { data.lastActiveDate = today; needsUpdate = true; }
             if (data.lastEnergyUpdate === undefined) { data.lastEnergyUpdate = Date.now(); needsUpdate = true; }
             
-            // Streak Logic
+            // Streak Safety: Login updates active date, resets if missed, but NEVER increments streak on login
             if (data.lastActiveDate !== today) {
               const todayDate = new Date(today);
               const lastActiveDateObj = new Date(data.lastActiveDate);
               const diffTime = Math.abs(todayDate.getTime() - lastActiveDateObj.getTime());
               const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
               
-              if (diffDays === 1) {
-                  data.currentStreak += 1;
-              } else {
+              if (diffDays > 1) {
                   data.currentStreak = 0;
               }
               data.lastActiveDate = today;
@@ -196,6 +217,24 @@ export default function App() {
               }, { merge: true });
             }
             setUserData(data);
+
+            // Fetch Gamification Profile
+            try {
+              const gameProfileRef = doc(db, 'users', currentUser.uid, 'gameProfile', 'main');
+              const gameProfileSnap = await getDoc(gameProfileRef);
+              if (gameProfileSnap.exists()) {
+                const gpData = gameProfileSnap.data() as StudentGameProfile;
+                setGameProfile(gpData);
+                if (!gpData.selectedRoute) {
+                  setShowRouteModal(true);
+                }
+              } else {
+                setGameProfile(null);
+                setShowRouteModal(true);
+              }
+            } catch (gpErr) {
+              console.warn("Could not load game profile:", gpErr);
+            }
           } else {
             // Check if admin email and set role accordingly, fixing legacy missing users
             const defaultRole = currentUser.email === ADMIN_EMAIL ? 'admin' : 'user';
@@ -336,7 +375,7 @@ export default function App() {
 
 
   const handleSelectSubject = (subjectId: string) => {
-    const subject = syllabus.find(s => s.id === subjectId);
+    const subject = syllabus.find(s => s?.id === subjectId);
     if (subject) {
       setSelectedSubject(subject);
       setCurrentView('chapters');
@@ -348,7 +387,12 @@ export default function App() {
     setCurrentView('topics');
   };
 
-  const handleSelectTopic = (topic: string | null, mode: 'quiz' | 'exam') => {
+  const handleSelectTopic = (
+    topic: string | null,
+    mode: 'quiz' | 'exam',
+    questionCount?: number,
+    timeMinutes?: number
+  ) => {
     if (!user) {
       setCurrentView('login');
       return;
@@ -393,10 +437,42 @@ export default function App() {
 
     setSelectedTopic(topic);
     setQuizMode(mode);
+    setExamTimeLimitMinutes(timeMinutes);
+    setExamQuestionCountLimit(questionCount);
     setCurrentView('quiz');
   };
 
-  const handleQuizComplete = (results: QuizResult[]) => {
+  const handleSaveRoute = async (route: LearningRoute, targetExam: string) => {
+    if (!user) return;
+    try {
+      const profileRef = doc(db, 'users', user.uid, 'gameProfile', 'main');
+      const existingSnap = await getDoc(profileRef);
+      const existingData = existingSnap.exists() ? existingSnap.data() : {};
+
+      const updatedProfile: StudentGameProfile = {
+        userId: user.uid,
+        selectedRoute: route,
+        targetExam,
+        selectedSubjects: existingData.selectedSubjects || [],
+        skillDivisions: existingData.skillDivisions || { [route]: 'foundation' },
+        competitionOptIn: existingData.competitionOptIn ?? false,
+        progressPoints: existingData.progressPoints || 0,
+        helpPoints: existingData.helpPoints || userData?.reputation || 0,
+        currentStreak: existingData.currentStreak || userData?.currentStreak || 0,
+        lastActiveDate: existingData.lastActiveDate || new Date().toISOString().split('T')[0],
+        createdAt: existingData.createdAt || serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+
+      await setDoc(profileRef, updatedProfile, { merge: true });
+      setGameProfile(updatedProfile);
+      setShowRouteModal(false);
+    } catch (err) {
+      console.error("Error saving learning route:", err);
+    }
+  };
+
+  const handleQuizComplete = async (results: QuizResult[]) => {
     const correctCount = results.filter(r => r.isCorrect).length;
     const wrongCount = results.filter(r => !r.isCorrect && !r.isSkipped).length;
     const skippedCount = results.filter(r => r.isSkipped).length;
@@ -435,6 +511,28 @@ export default function App() {
 
     if (correctCount > 0) {
       updateMissionProgress('mcq_correct', correctCount).catch(console.error);
+    }
+
+    // Award Gamification Foundation Points, Streaks, Daily Goals & Topic Mastery
+    if (user?.uid) {
+      try {
+        const eventType = quizMode === 'exam' ? 'mock_test' : 'quiz';
+        const eventId = `quiz_${selectedSubject?.id || 'gen'}_${Date.now()}`;
+        const res = await recordMeaningfulActionInFirestore(user.uid, {
+          type: eventType,
+          eventId
+        }, gameProfile);
+        
+        setGameProfile(res.updatedProfile);
+
+        // Update Topic Mastery for topic if available
+        if (selectedSubject?.id && selectedTopic) {
+          const topicId = `${selectedSubject.id}_${selectedTopic}`;
+          await recordTopicMasteryInFirestore(user.uid, selectedSubject.id, topicId, results.length, correctCount, gameProfile?.selectedRoute, selectedChapterIndex ?? undefined);
+        }
+      } catch (gErr) {
+        console.warn("Error updating gamification profile on quiz complete:", gErr);
+      }
     }
 
     setCurrentView('result');
@@ -573,81 +671,92 @@ export default function App() {
   };
 
   const getQuestions = () => {
+    if (customExamQuestions && customExamQuestions.length > 0) {
+      return customExamQuestions;
+    }
+
     let questions: any[] = [];
     
     // Check if it is a Custom dynamic subject first
-    if (selectedSubject?.id.startsWith('subj_') && selectedChapterIndex !== null) {
+    if (selectedSubject?.id?.startsWith('subj_') && selectedChapterIndex !== null) {
        const rawChapters = (selectedSubject as any)._rawChapters;
        if (rawChapters && rawChapters[selectedChapterIndex]) {
-          const rawQ = rawChapters[selectedChapterIndex].questions;
+          const rawQ = rawChapters[selectedChapterIndex].questions || [];
           questions = rawQ.map((q: any, i: number) => ({
              id: i + 1,
-             question_text: q.questionText,
-             options: q.options,
-             correct_answer: q.correctAnswer,
-             explanation: q.explanation || ''
+             question_text: q?.questionText || q?.question_text || '',
+             options: q?.options || [],
+             correct_answer: q?.correctAnswer || q?.correct_answer || '',
+             explanation: q?.explanation || ''
           }));
        }
        return questions;
     }
 
     if (selectedSubject?.id === 'bio1' && selectedChapterIndex === 0) {
-      questions = bio1Chap1Data.questions;
+      questions = bio1Chap1Data?.questions || [];
     } else if (selectedSubject?.id === 'bio1' && selectedChapterIndex === 6) {
-      questions = bio1Chap7Data.questions;
+      questions = bio1Chap7Data?.questions || [];
     } else if (selectedSubject?.id === 'bio2' && selectedChapterIndex === 0) {
-      questions = sampleChapterData.questions;
+      questions = sampleChapterData?.questions || [];
     } else if (selectedSubject?.id === 'phys1' && selectedChapterIndex === 1) {
-      questions = phy1Chap2Data.questions;
+      questions = phy1Chap2Data?.questions || [];
+    } else if (selectedSubject?.id === 'phys1' && selectedChapterIndex === 3) {
+      questions = phy1Chap4RawQuestions || [];
+    } else if (selectedSubject?.id === 'phys1' && selectedChapterIndex === 5) {
+      questions = phy1Chap6RawQuestions || [];
     } else if (selectedSubject?.id === 'chem1' && selectedChapterIndex === 1) {
-      questions = chem1Chap2Data.questions;
+      questions = chem1Chap2Data?.questions || [];
     } else if (selectedSubject?.id === 'gst_math' && selectedChapterIndex === 0) {
-      questions = gstMathExam1Data.questions;
+      questions = gstMathExam1Data?.questions || [];
     } else if (selectedSubject?.id === 'gst_math' && selectedChapterIndex === 1) {
-      questions = gstMathExam2Data.questions;
+      questions = gstMathExam2Data?.questions || [];
     } else if (selectedSubject?.id === 'dcu_math' && selectedChapterIndex === 0) {
-      questions = dcuMathStraightLineData.questions;
+      questions = dcuMathStraightLineData?.questions || [];
     } else if (selectedSubject?.id === 'dcu_math' && selectedChapterIndex === 1) {
-      questions = dcuMathExam1Data.questions;
+      questions = dcuMathExam1Data?.questions || [];
     } else if (selectedSubject?.id === 'dcu_math' && selectedChapterIndex === 2) {
-      questions = dcuMathExam3Data.questions;
+      questions = dcuMathExam3Data?.questions || [];
     } else if (selectedSubject?.id === 'dcu_phys' && selectedChapterIndex === 1) {
-      questions = dcuPhysicsVectorData.questions;
+      questions = dcuPhysicsVectorData?.questions || [];
     } else if (selectedSubject?.id === 'dcu_phys' && selectedChapterIndex === 2) {
-      questions = dcuPhysicsNewtonianData.questions;
+      questions = dcuPhysicsNewtonianData?.questions || [];
     } else if (selectedSubject?.id === 'dcu_phys' && selectedChapterIndex === 3) {
-      questions = dcuPhysicsWorkEnergyData.questions;
+      questions = dcuPhysicsWorkEnergyData?.questions || [];
     } else if (selectedSubject?.id === 'dcu_phys' && selectedChapterIndex === 4) {
-      questions = dcuPhysicsGravityData.questions;
+      questions = dcuPhysicsGravityData?.questions || [];
     } else if (selectedSubject?.id === 'dcu_phys' && selectedChapterIndex === 5) {
-      questions = dcuPhysicsStructureData.questions;
+      questions = dcuPhysicsStructureData?.questions || [];
     } else if (selectedSubject?.id === 'dcu_phys' && selectedChapterIndex === 6) {
-      questions = dcuPhysicsPeriodicData.questions;
+      questions = dcuPhysicsPeriodicData?.questions || [];
     } else if (selectedSubject?.id === 'dcu_phys' && selectedChapterIndex === 7) {
-      questions = dcuPhysicsIdealGasData.questions;
+      questions = dcuPhysicsIdealGasData?.questions || [];
     } else if (selectedSubject?.id === 'dcu_phys2' && selectedChapterIndex === 0) {
-      questions = dcuPhysicsThermodynamicsData.questions;
+      questions = dcuPhysicsThermodynamicsData?.questions || [];
     } else if (selectedSubject?.id === 'dcu_phys2' && selectedChapterIndex === 1) {
-      questions = dcuPhysicsElectrostaticsData.questions;
+      questions = dcuPhysicsElectrostaticsData?.questions || [];
     } else if (selectedSubject?.id === 'dcu_phys2' && selectedChapterIndex === 2) {
-      questions = dcuPhysicsCurrentElectricityData.questions;
+      questions = dcuPhysicsCurrentElectricityData?.questions || [];
     } else if (selectedSubject?.id === 'dcu_chem1' && selectedChapterIndex === 0) {
-      questions = dcuChemQualitativeData.questions;
+      questions = dcuChemQualitativeData?.questions || [];
     } else if (selectedSubject?.id === 'dcu_chem1' && selectedChapterIndex === 1) {
-      questions = dcuChemPeriodicPropertiesData.questions;
+      questions = dcuChemPeriodicPropertiesData?.questions || [];
     } else if (selectedSubject?.id === 'dcu_chem2' && selectedChapterIndex === 0) {
-      questions = dcuChemEnvironmentalData.questions;
+      questions = dcuChemEnvironmentalData?.questions || [];
+    } else if (selectedSubject?.id === 'math1' && selectedChapterIndex === 8) {
+      questions = math1Chap9Data?.questions || [];
     }
 
     // Apply Overrides globally to all questions found
-    const appliedQuestions = questions.map(q => {
+    const appliedQuestions = (questions || []).filter(Boolean).map((q, idx) => {
       // The override key pattern used in AdminDashboard: 
       // `override_${subjectId}_${chapterIndex}_${topic || 'none'}_${questionId}`
       // This applies to the selected topic if there's one, but let's check exact topic matching.
       const overrideKeyBase = `override_${selectedSubject?.id}_${selectedChapterIndex}`;
       // Q's topic might be different from selectedTopic if we haven't filtered yet
-      const qTopicStr = q.topic || 'none';
-      const exactOverrideKey = `${overrideKeyBase}_${qTopicStr}_${q.id}`;
+      const qTopicStr = q?.topic || 'none';
+      const qIdStr = q?.id ?? idx + 1;
+      const exactOverrideKey = `${overrideKeyBase}_${qTopicStr}_${qIdStr}`;
       
       const overrideData = questionOverrides[exactOverrideKey];
       if (overrideData) {
@@ -662,10 +771,19 @@ export default function App() {
       return q;
     });
 
+    let resultQuestions = appliedQuestions;
     if (selectedTopic) {
-      return appliedQuestions.filter(q => q.topic === selectedTopic);
+      const norm = selectedTopic.replace(/^[০-৯0-9]+\.\s*/, '').trim();
+      resultQuestions = appliedQuestions.filter(q => {
+        if (!q?.topic) return false;
+        return q.topic === selectedTopic || q.topic.replace(/^[০-৯0-9]+\.\s*/, '').trim() === norm;
+      });
     }
-    return appliedQuestions;
+
+    if (examQuestionCountLimit && examQuestionCountLimit > 0 && resultQuestions.length > examQuestionCountLimit) {
+      return resultQuestions.slice(0, examQuestionCountLimit);
+    }
+    return resultQuestions;
   };
 
   return (
@@ -681,18 +799,34 @@ export default function App() {
         currentView={currentView} 
       />
       <ProModal isOpen={showProModal} onClose={() => setShowProModal(false)} />
+      <CalmConfirmationToast />
       
       <main className="flex-1">
         {currentView === 'home' && (
           <Home 
+            user={user}
+            userData={userData}
+            gameProfile={gameProfile}
             onSelectCategory={(category) => {
               setCurrentCategory(category);
-              setCurrentView(`category_${category}` as ViewState);
+              if (category === 'medical') {
+                setCurrentView('medical-dashboard');
+              } else {
+                setCurrentView(`category_${category}` as ViewState);
+              }
             }} 
             onShowLeaderboard={handleShowLeaderboard} 
             onShowShop={() => setCurrentView('shop')} 
-            userData={userData}
             onClaimReward={claimMissionReward}
+            onNavigateToRoutine={(options) => {
+              setRoutineNavOptions(options || {});
+              handleNavigate('routine');
+            }}
+            onNavigateToLogin={() => handleNavigate('login')}
+            onNavigateToDoubtArena={() => handleNavigate('doubt-arena')}
+            onOpenRouteSetup={() => setShowRouteModal(true)}
+            onNavigateToMedicalDashboard={() => setCurrentView('medical-dashboard')}
+            onNavigateToMedicalSubView={(v) => setCurrentView(v as ViewState)}
           />
         )}
 
@@ -714,12 +848,80 @@ export default function App() {
           />
         )}
 
-        {currentView === 'category_medical' && (
-          <CategoryPage
-            category="medical"
+        {(currentView === 'category_medical' || currentView === 'medical-dashboard') && (
+          <MedicalDashboard
+            onNavigate={(v) => setCurrentView(v as ViewState)}
+            onOpenRouteSetup={() => setShowRouteModal(true)}
+            gameProfile={gameProfile}
+            onSelectSubjectForPractice={(subjectId) => {
+              const sub = syllabus.find(s => s?.id === subjectId);
+              if (sub) {
+                setSelectedSubject(sub);
+                setCurrentView('medical-question-bank');
+              } else {
+                setCurrentView('medical-question-bank');
+              }
+            }}
+          />
+        )}
+
+        {currentView === 'medical-question-bank' && (
+          <MedicalQuestionBank
             syllabus={syllabus}
-            onSelectSubject={handleSelectSubject}
-            onBack={handleGoHome}
+            onBack={() => setCurrentView('medical-dashboard')}
+            onStartQuiz={(subject, chapterIndex, mode) => {
+              setCustomExamQuestions(null);
+              setSelectedSubject(subject);
+              setSelectedChapterIndex(chapterIndex);
+              setQuizMode(mode || 'quiz');
+              setCurrentView('quiz');
+            }}
+            onStartCustomTest={(questions, title, mode) => {
+              setCustomExamQuestions(questions);
+              setCustomExamTitle(title);
+              setQuizMode(mode || 'quiz');
+              setCurrentView('quiz');
+            }}
+          />
+        )}
+
+        {currentView === 'medical-past-questions' && (
+          <MedicalPastQuestions
+            onBack={() => setCurrentView('medical-dashboard')}
+            pastQuestionSets={[]}
+          />
+        )}
+
+        {currentView === 'medical-subject-tests' && (
+          <MedicalSubjectTests
+            onBack={() => setCurrentView('medical-dashboard')}
+            onStartCustomTest={(questions, title, mode) => {
+              setCustomExamQuestions(questions);
+              setCustomExamTitle(title);
+              setQuizMode(mode || 'exam');
+              setCurrentView('quiz');
+            }}
+            onAddToRoutine={(title, durationMinutes) => {
+              setRoutineNavOptions({ openAddTask: true, focusToday: true });
+              setCurrentView('routine');
+            }}
+          />
+        )}
+
+        {currentView === 'medical-mock-tests' && (
+          <MedicalMockTests
+            onBack={() => setCurrentView('medical-dashboard')}
+            mockTests={[]}
+          />
+        )}
+
+        {currentView === 'medical-model-tests' && (
+          <MedicalModelTests
+            onBack={() => setCurrentView('medical-dashboard')}
+            onAddToRoutine={(title, durationMinutes) => {
+              setRoutineNavOptions({ openAddTask: true, focusToday: true });
+              setCurrentView('routine');
+            }}
           />
         )}
 
@@ -756,12 +958,20 @@ export default function App() {
           <Quiz 
             questions={getQuestions()} 
             mode={quizMode}
-            subjectId={selectedSubject?.id}
+            subjectId={selectedSubject?.id || 'physics'}
             chapterIndex={selectedChapterIndex ?? undefined}
-            quizTitle={selectedSubject?.name}
+            quizTitle={customExamQuestions ? customExamTitle : selectedSubject?.name}
             userEmail={user?.email || undefined}
+            examTimeLimitMinutes={examTimeLimitMinutes}
             onComplete={handleQuizComplete} 
-            onBack={() => setCurrentView('topics')}
+            onBack={() => {
+              if (customExamQuestions) {
+                setCustomExamQuestions(null);
+                setCurrentView('medical-subject-tests');
+              } else {
+                setCurrentView('topics');
+              }
+            }}
           />
         )}
 
@@ -791,7 +1001,15 @@ export default function App() {
         )}
 
         {currentView === 'profile' && (
-          <Profile user={user} userData={userData} onBack={handleGoHome} onUpgradeClick={() => setShowProModal(true)} />
+          <Profile 
+            user={user} 
+            userData={userData} 
+            gameProfile={gameProfile}
+            onBack={handleGoHome} 
+            onNavigate={handleNavigate as any} 
+            onUpgradeClick={() => setShowProModal(true)} 
+            onOpenRouteSetup={() => setShowRouteModal(true)}
+          />
         )}
 
         {currentView === 'admin' && userData?.role === 'admin' && (
@@ -816,6 +1034,27 @@ export default function App() {
             initialSubject={selectedSubject?.name}
             initialChapter={selectedChapterIndex !== null && selectedSubject ? selectedSubject.chapters[selectedChapterIndex] : undefined}
             onUpdateMissionProgress={updateMissionProgress}
+          />
+        )}
+
+        {currentView === 'routine' && (
+          <RoutineManager
+            userId={user?.uid || null}
+            autoOpenAddTask={routineNavOptions.openAddTask}
+            autoFocusToday={routineNavOptions.focusToday}
+            onNavigateToQuiz={(topicId) => {
+              setCurrentView('category_academic');
+            }}
+          />
+        )}
+
+        {/* Gamification Onboarding / Route Setup Modal */}
+        {user && showRouteModal && (
+          <RouteSetupModal
+            currentRoute={gameProfile?.selectedRoute}
+            currentTargetExam={gameProfile?.targetExam}
+            onSave={handleSaveRoute}
+            onClose={() => setShowRouteModal(false)}
           />
         )}
       </main>

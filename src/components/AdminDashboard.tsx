@@ -4,8 +4,11 @@ import { db } from '../firebase';
 import { ShieldAlert, Plus, Save, Loader2, Trash2, Flag, MessageSquare, CheckCircle2, Edit, Flame } from 'lucide-react';
 
 import AdminQuizBuilder from './AdminQuizBuilder';
+import AdminRoutineControlCenter from './admin/AdminRoutineControlCenter';
+import QuestionBankAdmin from './admin/QuestionBankAdmin';
 
 interface AdminDashboardProps {
+
   user: any;
   isAdmin?: boolean;
   onBack: () => void;
@@ -47,7 +50,8 @@ interface ResultEntry {
 }
 
 export default function AdminDashboard({ user, isAdmin, onBack }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'results' | 'addQuiz' | 'reports' | 'feedbacks' | 'moderation'>('reports');
+  const [activeTab, setActiveTab] = useState<'questionBank' | 'results' | 'addQuiz' | 'reports' | 'feedbacks' | 'moderation' | 'routineControl'>('questionBank');
+
   
   // Results State
   const [results, setResults] = useState<ResultEntry[]>([]);
@@ -378,6 +382,18 @@ export default function AdminDashboard({ user, isAdmin, onBack }: AdminDashboard
 
       <div className="flex gap-4 mb-8 border-b border-slate-800 pb-2 overflow-x-auto">
         <button
+          onClick={() => setActiveTab('questionBank')}
+          className={`px-4 py-2 font-medium whitespace-nowrap rounded-t-lg transition-colors ${activeTab === 'questionBank' ? 'text-emerald-400 border-b-2 border-emerald-400' : 'text-slate-400 hover:text-slate-200'}`}
+        >
+          প্রশ্নব্যাংক পরিচালনা
+        </button>
+        <button
+          onClick={() => setActiveTab('routineControl')}
+          className={`px-4 py-2 font-medium whitespace-nowrap rounded-t-lg transition-colors ${activeTab === 'routineControl' ? 'text-emerald-400 border-b-2 border-emerald-400' : 'text-slate-400 hover:text-slate-200'}`}
+        >
+          রুটিন কন্ট্রোল সেন্টার
+        </button>
+        <button
           onClick={() => setActiveTab('reports')}
           className={`px-4 py-2 font-medium whitespace-nowrap rounded-t-lg transition-colors ${activeTab === 'reports' ? 'text-emerald-400 border-b-2 border-emerald-400' : 'text-slate-400 hover:text-slate-200'}`}
         >
@@ -631,6 +647,14 @@ export default function AdminDashboard({ user, isAdmin, onBack }: AdminDashboard
             </div>
           )}
         </div>
+      )}
+
+      {activeTab === 'questionBank' && (
+        <QuestionBankAdmin userEmail={user?.email || 'admin@example.com'} />
+      )}
+
+      {activeTab === 'routineControl' && (
+        <AdminRoutineControlCenter />
       )}
 
       {activeTab === 'addQuiz' && (

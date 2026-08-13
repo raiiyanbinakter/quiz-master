@@ -13,6 +13,10 @@ export default function UserAvatar({ url, borderId, className = "w-10 h-10" }: U
     borderClass = 'shadow-[0_0_15px_rgba(34,211,238,0.8)] border-2 border-cyan-400';
   } else if (borderId === 'border_gold') {
     borderClass = 'shadow-[0_0_15px_rgba(250,204,21,0.8)] border-2 border-yellow-400';
+  } else if (borderId === 'border_emerald') {
+    borderClass = 'shadow-[0_0_15px_rgba(16,185,129,0.8)] border-2 border-emerald-400';
+  } else if (borderId === 'border_violet') {
+    borderClass = 'shadow-[0_0_15px_rgba(139,92,246,0.8)] border-2 border-violet-400';
   }
 
   const defaultAvatar = "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix";
