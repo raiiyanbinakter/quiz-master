@@ -16,6 +16,7 @@ export type DeliveryFeature =
   | 'past_questions'
   | 'subject_test'
   | 'mock_test'
+  | 'model_test'
   | 'routine_review'
   | 'competition_future';
 
@@ -25,6 +26,41 @@ export type MedicalSubject =
   | 'biology'
   | 'english'
   | 'general_knowledge';
+
+export type TeacherSourceSet = 
+  | 'ishak' 
+  | 'topon' 
+  | 'pramanik' 
+  | 'tofazzal'
+  | 'hazari'
+  | 'guha'
+  | 'kabir'
+  | 'lincoln'
+  | 'abul_hasan'
+  | 'gazi_ajmol'
+  | 'azibur'
+  | 'alim'
+  | 'majeda'
+  | 'board'
+  | 'english_expert'
+  | 'gk_expert';
+
+export type TeacherSourceSetLabel = 
+  | 'ইসহাক স্যার' 
+  | 'তপন স্যার' 
+  | 'প্রামাণিক স্যার' 
+  | 'তোফাজ্জল স্যার'
+  | 'হাজারী স্যার'
+  | 'গুহ স্যার'
+  | 'কবীর স্যার'
+  | 'লিংকন স্যার'
+  | 'আবুল হাসান স্যার'
+  | 'গাজী আজমল স্যার'
+  | 'আজিবুর স্যার'
+  | 'আলীম স্যার'
+  | 'মাজেদা বেগম ম্যাডাম'
+  | 'বোর্ড প্রশ্ন'
+  | 'এক্সপার্ট প্যানেল';
 
 export interface QuestionOption {
   id: string; // 'A' | 'B' | 'C' | 'D'
@@ -50,20 +86,54 @@ export interface QuestionSource {
   note?: string;
 }
 
+export type QuestionMediaPlacement =
+  | 'question'
+  | 'stimulus'
+  | 'option_a'
+  | 'option_b'
+  | 'option_c'
+  | 'option_d'
+  | 'explanation';
+
+export interface QuestionMedia {
+  id: string;
+  placement: QuestionMediaPlacement;
+  type: 'diagram' | 'graph' | 'table' | 'circuit' | 'formula_image' | 'question_image' | 'equation' | 'photo';
+  storagePath: string;
+  url: string;
+  altText?: string;
+  fileName: string;
+  fileSize?: number;
+  width?: number;
+  height?: number;
+  uploadedBy: string;
+  uploadedAt: any;
+}
+
+export type QuestionMediaItem = QuestionMedia;
+
 export interface QuestionItem {
   id: string;
   version: number;
-  route: 'medical';
-  subject: MedicalSubject;
+  route: 'medical' | 'academic' | 'varsity' | 'engineering';
+  subject: MedicalSubject | string;
+  subjectId?: string;
   paper?: 'first' | 'second' | 'not_applicable';
+  sectionId?: string;
+  sectionName?: string;
   chapterId?: string;
   chapterName?: string;
   topicId?: string;
   topicName?: string;
+  sourceSet?: TeacherSourceSet;
+  sourceSetLabel?: TeacherSourceSetLabel;
+  sourceQuestionNumber?: number | string;
   learningObjective?: string;
   questionType: 'single_choice';
   stem: string;
   stemImageUrl?: string;
+  hasImage?: boolean;
+  media?: QuestionMediaItem[];
   options: QuestionOption[];
   correctOptionId: string; // 'A', 'B', 'C', 'D'
   explanation: QuestionExplanation;

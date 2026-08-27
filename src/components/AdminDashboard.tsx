@@ -6,11 +6,13 @@ import { ShieldAlert, Plus, Save, Loader2, Trash2, Flag, MessageSquare, CheckCir
 import AdminQuizBuilder from './AdminQuizBuilder';
 import AdminRoutineControlCenter from './admin/AdminRoutineControlCenter';
 import QuestionBankAdmin from './admin/QuestionBankAdmin';
+import AdminBoardQuestionAdder from './admin/AdminBoardQuestionAdder';
+import { Subject } from '../types';
 
 interface AdminDashboardProps {
-
   user: any;
   isAdmin?: boolean;
+  syllabus?: Subject[];
   onBack: () => void;
 }
 
@@ -49,8 +51,8 @@ interface ResultEntry {
   createdAt: any;
 }
 
-export default function AdminDashboard({ user, isAdmin, onBack }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'questionBank' | 'results' | 'addQuiz' | 'reports' | 'feedbacks' | 'moderation' | 'routineControl'>('questionBank');
+export default function AdminDashboard({ user, isAdmin, syllabus = [], onBack }: AdminDashboardProps) {
+  const [activeTab, setActiveTab] = useState<'questionBank' | 'boardQuestions' | 'routineControl' | 'results' | 'addQuiz' | 'reports' | 'feedbacks' | 'moderation'>('questionBank');
 
   
   // Results State
@@ -374,8 +376,8 @@ export default function AdminDashboard({ user, isAdmin, onBack }: AdminDashboard
             <ShieldAlert className="w-7 h-7 text-rose-400" />
           </div>
           <div>
-            <h1 className="text-3xl font-bold text-white">এডমিন প্যানেল</h1>
-            <p className="text-slate-400 text-sm">অ্যাপ কন্ট্রোল এবং ডাটা ম্যানেজমেন্ট</p>
+            <h1 className="text-3xl font-bold text-white">Admin Dashboard</h1>
+            <p className="text-slate-400 text-sm">অ্যাপ কন্ট্রোল এবং ডাটা ম্যানেজমেন্ট ({user?.email})</p>
           </div>
         </div>
       </div>
@@ -653,8 +655,12 @@ export default function AdminDashboard({ user, isAdmin, onBack }: AdminDashboard
         <QuestionBankAdmin userEmail={user?.email || 'admin@example.com'} />
       )}
 
+      {activeTab === 'boardQuestions' && (
+        <AdminBoardQuestionAdder syllabus={syllabus || []} />
+      )}
+
       {activeTab === 'routineControl' && (
-        <AdminRoutineControlCenter />
+        <AdminRoutineControlCenter user={user} isAdmin={isAdmin} />
       )}
 
       {activeTab === 'addQuiz' && (

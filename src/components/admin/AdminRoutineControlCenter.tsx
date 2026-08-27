@@ -2,8 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { 
   BookOpen, Plus, Save, Edit, Copy, Trash2, CheckCircle2, 
   XCircle, Calendar, Users, BarChart3, History, Shield, AlertTriangle, 
-  Sparkles, RefreshCw, Eye, Tag, Clock, Flame, Award, ChevronDown, ChevronUp, Layers
+  Sparkles, RefreshCw, Eye, Tag, Clock, Flame, Award, ChevronDown, ChevronUp, Layers,
+  Loader2
 } from 'lucide-react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db, auth } from '../../firebase';
 import { 
   RoutineTemplate, RoutineEvent, LearningRoute 
 } from '../../types/routine';
@@ -14,7 +17,12 @@ import {
   DEMO_ROUTINE_TEMPLATES, DEMO_ROUTINE_EVENTS
 } from '../../lib/adminRoutineFirestore';
 
-export default function AdminRoutineControlCenter() {
+interface AdminRoutineControlCenterProps {
+  user?: any;
+  isAdmin?: boolean;
+}
+
+export default function AdminRoutineControlCenter({ user, isAdmin }: AdminRoutineControlCenterProps = {}) {
   const [activeTab, setActiveTab] = useState<'templates' | 'events' | 'targeting' | 'analytics' | 'history'>('templates');
   
   // Data States
@@ -27,6 +35,10 @@ export default function AdminRoutineControlCenter() {
   // Template Form State
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<Partial<RoutineTemplate> | null>(null);
+
+  // Template Delete Confirmation Modal State
+  const [templateToDelete, setTemplateToDelete] = useState<RoutineTemplate | null>(null);
+  const [isDeletingTemplate, setIsDeletingTemplate] = useState(false);
 
   // Event Form State
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
@@ -148,14 +160,51 @@ export default function AdminRoutineControlCenter() {
     }
   };
 
-  const handleDeleteTemplate = async (id: string) => {
-    if (!window.confirm('আপনি কি নিশ্চিত যে এই টেমপ্লেটটি মুছে ফেলতে চান?')) return;
+  const handleConfirmDeleteTemplate = async (tmpl: RoutineTemplate) => {
+    const currentUser = user || auth?.currentUser;
+    if (!currentUser) {
+      showNotification('টেমপ্লেট মুছে ফেলতে আগে লগইন করুন।', 'error');
+      setTemplateToDelete(null);
+      return;
+    }
+
+    let userIsAdmin = isAdmin;
+    if (userIsAdmin === undefined && db && currentUser.uid) {
+      try {
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        userIsAdmin = userDoc.exists() && userDoc.data()?.role === 'admin';
+      } catch (e) {
+        console.error('Error checking admin status in Firestore:', e);
+      }
+    }
+
+    if (userIsAdmin === false) {
+      showNotification('এই টেমপ্লেট মুছে ফেলার অনুমতি আপনার নেই।', 'error');
+      setTemplateToDelete(null);
+      return;
+    }
+
+    setIsDeletingTemplate(true);
     try {
-      await deleteAdminRoutineTemplate(id);
-      showNotification('টেমপ্লেট সফলভাবে মুছে ফেলা হয়েছে।');
-      loadAllData();
-    } catch (err) {
-      showNotification('মুছে ফেলতে সমস্যা হয়েছে।', 'error');
+      await deleteAdminRoutineTemplate(tmpl.id, currentUser, userIsAdmin);
+      setTemplates(prev => prev.filter(t => t.id !== tmpl.id));
+      showNotification('রুটিন টেমপ্লেটটি মুছে ফেলা হয়েছে।', 'success');
+      setTemplateToDelete(null);
+    } catch (err: any) {
+      console.error('Error deleting routine template:', err);
+      if (err?.message === 'NOT_LOGGED_IN') {
+        showNotification('টেমপ্লেট মুছে ফেলতে আগে লগইন করুন।', 'error');
+      } else if (err?.message === 'NOT_ADMIN') {
+        showNotification('এই টেমপ্লেট মুছে ফেলার অনুমতি আপনার নেই।', 'error');
+      } else if (err?.message === 'NOT_FOUND' || err?.code === 'not-found') {
+        showNotification('এই টেমপ্লেটটি আর পাওয়া যাচ্ছে না।', 'error');
+      } else if (err?.code === 'permission-denied' || err?.message?.includes('permission') || err?.message === 'PERMISSION_DENIED') {
+        showNotification('টেমপ্লেট মুছে ফেলা যায়নি। Firebase অনুমতি পরীক্ষা করুন।', 'error');
+      } else {
+        showNotification('টেমপ্লেট মুছে ফেলতে সমস্যা হয়েছে। আবার চেষ্টা করুন।', 'error');
+      }
+    } finally {
+      setIsDeletingTemplate(false);
     }
   };
 
@@ -414,11 +463,21 @@ export default function AdminRoutineControlCenter() {
                   </div>
 
                   <button
-                    onClick={() => handleDeleteTemplate(tmpl.id)}
-                    className="p-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-lg text-xs transition-colors"
-                    title="Delete"
+                    type="button"
+                    aria-label="টেমপ্লেট মুছুন"
+                    title="টেমপ্লেট মুছুন"
+                    disabled={isDeletingTemplate}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setTemplateToDelete(tmpl);
+                    }}
+                    className="p-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-lg text-xs transition-colors disabled:opacity-50"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    {isDeletingTemplate && templateToDelete?.id === tmpl.id ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
                   </button>
                 </div>
               </div>
@@ -612,6 +671,65 @@ export default function AdminRoutineControlCenter() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TEMPLATE DELETE CONFIRMATION MODAL */}
+      {templateToDelete && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-7 max-w-md w-full shadow-2xl space-y-5">
+            <div className="flex items-center gap-3.5 text-rose-400">
+              <div className="p-3 bg-rose-500/10 rounded-2xl border border-rose-500/20 shrink-0">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white leading-snug">
+                  এই রুটিন টেমপ্লেটটি মুছে ফেলতে চান?
+                </h3>
+                <p className="text-xs text-rose-400 font-semibold mt-0.5">
+                  এই কাজটি ফিরিয়ে আনা যাবে না।
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950/80 border border-slate-800/80 rounded-2xl p-4 space-y-1">
+              <div className="text-[11px] font-bold text-slate-400">টেমপ্লেট:</div>
+              <div className="text-sm font-bold text-white">
+                {templateToDelete.banglaTitle}
+              </div>
+              {templateToDelete.title && (
+                <div className="text-xs text-slate-400 font-medium">
+                  {templateToDelete.title}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                disabled={isDeletingTemplate}
+                onClick={() => setTemplateToDelete(null)}
+                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl text-xs transition-colors disabled:opacity-50"
+              >
+                বাতিল করুন
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingTemplate}
+                onClick={() => handleConfirmDeleteTemplate(templateToDelete)}
+                className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition-colors disabled:opacity-50 shadow-lg shadow-rose-600/20"
+              >
+                {isDeletingTemplate ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>মুছে ফেলা হচ্ছে...</span>
+                  </>
+                ) : (
+                  <span>মুছে ফেলুন</span>
+                )}
+              </button>
             </div>
           </div>
         </div>

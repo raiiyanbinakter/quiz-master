@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ArrowLeft, 
   BookOpen, 
@@ -9,1027 +9,1047 @@ import {
   Globe, 
   AlertCircle, 
   Play, 
-  Layers, 
   Sparkles, 
-  X, 
-  Filter, 
-  BookMarked,
-  ShieldCheck,
-  Timer,
-  CheckCircle2,
-  Clock,
-  ChevronLeft,
-  Check
+  Layers, 
+  CheckCircle2, 
+  Clock, 
+  Check, 
+  ChevronRight,
+  HelpCircle,
+  Award,
+  Timer
 } from 'lucide-react';
-import { Subject } from '../../types';
-import { MODULE_1_CONFIG } from '../../data/moduleConfig';
-import { phy1Chap4RawQuestions } from '../../data/questions_phy1_chap4_newtonian';
-import { phy1Chap6RawQuestions } from '../../data/questions_phy1_chap6_gravity';
-import { phy1Chap2Data } from '../../data/questions_phy1_chap2';
-import { bio1Chap1Data } from '../../data/questions_bio1_chap1';
-import { bio1Chap7Data } from '../../data/questions_bio1_chap7';
-import { chem1Chap2Data } from '../../data/questions_chem1_chap2';
+import { Subject, Question } from '../../types';
+import { 
+  QuestionItem, 
+  MedicalSubject, 
+  TeacherSourceSet 
+} from '../../types/questionBank';
+import { 
+  MEDICAL_PRACTICE_SUBJECTS, 
+  TEACHER_SOURCE_SETS, 
+  INITIAL_MEDICAL_PRACTICE_QUESTIONS,
+  getChaptersForSelection, 
+  getTeacherSetsForChapter, 
+  getTopicsForSelectedSets, 
+  filterMedicalPracticeQuestions,
+  convertToQuizQuestions,
+  toBanglaNumber,
+  MedicalChapterInfo
+} from '../../lib/medicalPracticeBank';
+import { db } from '../../firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 
 interface MedicalQuestionBankProps {
-  syllabus: Subject[];
+  syllabus?: Subject[];
   onBack: () => void;
-  onStartQuiz: (subject: Subject, chapterIndex: number, mode?: 'quiz' | 'exam') => void;
-  onStartCustomTest?: (questions: any[], title: string, mode?: 'quiz' | 'exam') => void;
+  initialSubject?: MedicalSubject;
+  initialPaper?: 'first' | 'second' | 'not_applicable';
+  initialChapterName?: string;
+  initialStep?: Step;
+  onStartQuiz?: (subject: Subject, chapterIndex: number, mode?: 'quiz' | 'exam') => void;
+  onStartCustomTest?: (questions: Question[], title: string, mode?: 'quiz' | 'exam', timeLimitMinutes?: number | null) => void;
 }
 
-type MainSubjectKey = 'physics' | 'chemistry' | 'biology' | 'english' | 'general_knowledge';
-
-interface SetupChapterState {
-  chapterIdx: number;
-  chapterName: string;
-  chapterNumberLabel: string;
-  rawList: any[];
-  hasTeacherSets: boolean;
-}
-
-// Convert numbers to Bangla digits
-const getBanglaNumber = (num: number): string => {
-  const banglaDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
-  return String(num).split('').map(d => banglaDigits[parseInt(d, 10)] || d).join('');
-};
+type Step = 'subject' | 'paper' | 'chapter' | 'teacher_set' | 'topic' | 'setup';
 
 export default function MedicalQuestionBank({
-  syllabus,
+  syllabus = [],
   onBack,
+  initialSubject,
+  initialPaper,
+  initialChapterName,
+  initialStep,
   onStartQuiz,
   onStartCustomTest
 }: MedicalQuestionBankProps) {
-  const [selectedMainSubject, setSelectedMainSubject] = useState<MainSubjectKey>('physics');
-  const [selectedPaper, setSelectedPaper] = useState<'1st' | '2nd'>('1st');
+  // Master question list (seeds + Firestore published medical practice questions)
+  const [allQuestions, setAllQuestions] = useState<QuestionItem[]>(INITIAL_MEDICAL_PRACTICE_QUESTIONS);
+  const [loadingFirestore, setLoadingFirestore] = useState(false);
 
-  // Modal Setup State
-  const [setupModalOpen, setSetupModalOpen] = useState(false);
-  const [activeChapter, setActiveChapter] = useState<SetupChapterState | null>(null);
-  const [step, setStep] = useState<'teacher_select' | 'mode_setup'>('teacher_select');
-
-  // Filters & Customizations
-  const [selectedTeacher, setSelectedTeacher] = useState<string>('all');
-  const [selectedTopic, setSelectedTopic] = useState<string>('all');
+  // Flow State
+  const [currentStep, setCurrentStep] = useState<Step>(initialStep || (initialChapterName ? 'teacher_set' : 'subject'));
+  const [selectedSubject, setSelectedSubject] = useState<MedicalSubject>(initialSubject || 'physics');
+  const [selectedPaper, setSelectedPaper] = useState<'first' | 'second' | 'not_applicable'>(initialPaper || 'first');
+  const [selectedChapter, setSelectedChapter] = useState<MedicalChapterInfo | null>(null);
+  
+  // Selection State
+  const [selectedTeacherSets, setSelectedTeacherSets] = useState<TeacherSourceSet[]>([]);
+  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
+  
+  // Setup State
   const [selectedMode, setSelectedMode] = useState<'quiz' | 'exam'>('quiz');
-  const [selectedQuestionCount, setSelectedQuestionCount] = useState<number | null>(null);
+  const [selectedQuestionCount, setSelectedQuestionCount] = useState<number | 'all'>('all');
   const [practiceTimeOption, setPracticeTimeOption] = useState<'no_limit' | 'custom'>('no_limit');
-  const [customTimeMinutes, setCustomTimeMinutes] = useState<string>('');
+  const [customTimeMinutes, setCustomTimeMinutes] = useState<string>(''); // No default time!
+  const [validationError, setValidationError] = useState<string | null>(null);
 
-  // Subject Definitions
-  const subjectsList = [
-    { key: 'physics' as MainSubjectKey, name: 'পদার্থবিজ্ঞান', icon: Atom, color: 'text-sky-400 bg-sky-500/10 border-sky-500/20' },
-    { key: 'chemistry' as MainSubjectKey, name: 'রসায়ন', icon: FlaskConical, color: 'text-purple-400 bg-purple-500/10 border-purple-500/20' },
-    { key: 'biology' as MainSubjectKey, name: 'জীববিজ্ঞান', icon: Dna, color: 'text-teal-400 bg-teal-500/10 border-teal-500/20' },
-    { key: 'english' as MainSubjectKey, name: 'ইংরেজি', icon: Languages, color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' },
-    { key: 'general_knowledge' as MainSubjectKey, name: 'সাধারণ জ্ঞান', icon: Globe, color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' }
-  ];
+  // Sync published questions from Firestore if available
+  useEffect(() => {
+    let isMounted = true;
+    const fetchPublishedFirestoreQuestions = async () => {
+      try {
+        setLoadingFirestore(true);
+        const qRef = collection(db, 'questions');
+        const qQuery = query(
+          qRef,
+          where('route', '==', 'medical'),
+          where('status', '==', 'published')
+        );
+        const snap = await getDocs(qQuery);
+        if (!isMounted) return;
 
-  // Resolve matching syllabus subject ID
-  const getSubjectIdForSelection = (): string | null => {
-    if (selectedMainSubject === 'biology') return selectedPaper === '1st' ? 'bio1' : 'bio2';
-    if (selectedMainSubject === 'chemistry') return selectedPaper === '1st' ? 'chem1' : 'chem2';
-    if (selectedMainSubject === 'physics') return selectedPaper === '1st' ? 'phys1' : 'phys2';
-    return null;
-  };
+        const firestoreItems: QuestionItem[] = [];
+        snap.forEach(docSnap => {
+          const data = docSnap.data() as QuestionItem;
+          if (data.featureTags?.includes('practice_bank')) {
+            firestoreItems.push({
+              ...data,
+              id: docSnap.id
+            });
+          }
+        });
 
-  const currentSubjectId = getSubjectIdForSelection();
-  const currentSyllabusSubject = currentSubjectId ? syllabus.find(s => s.id === currentSubjectId) : null;
-  const isPaperSubject = ['biology', 'chemistry', 'physics'].includes(selectedMainSubject);
+        if (firestoreItems.length > 0) {
+          setAllQuestions(prev => {
+            const existingIds = new Set(prev.map(p => p.id));
+            const newItems = firestoreItems.filter(f => !existingIds.has(f.id));
+            return [...prev, ...newItems];
+          });
+        }
+      } catch (err) {
+        console.warn('Could not load Firestore medical practice questions:', err);
+      } finally {
+        if (isMounted) setLoadingFirestore(false);
+      }
+    };
 
-  // Question & Teacher set resolver for any chapter
-  const getChapterData = (subjectId: string, idx: number): { rawList: any[]; hasTeacherSets: boolean } => {
-    if (subjectId === 'phys1') {
-      if (idx === 3) return { rawList: phy1Chap4RawQuestions, hasTeacherSets: true };
-      if (idx === 5) return { rawList: phy1Chap6RawQuestions, hasTeacherSets: true };
-      if (idx === 1) return { rawList: phy1Chap2Data?.questions || [], hasTeacherSets: false };
+    fetchPublishedFirestoreQuestions();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Sync initial selection if provided
+  useEffect(() => {
+    if (initialSubject) {
+      setSelectedSubject(initialSubject);
     }
-    if (subjectId === 'bio1') {
-      if (idx === 0) return { rawList: bio1Chap1Data?.questions || [], hasTeacherSets: false };
-      if (idx === 6) return { rawList: bio1Chap7Data?.questions || [], hasTeacherSets: false };
+    if (initialPaper) {
+      setSelectedPaper(initialPaper);
     }
-    if (subjectId === 'chem1') {
-      if (idx === 1) return { rawList: chem1Chap2Data?.questions || [], hasTeacherSets: false };
+    if (initialChapterName) {
+      const chaps = getChaptersForSelection(initialSubject || selectedSubject, initialPaper || selectedPaper, allQuestions);
+      const found = chaps.find(c => 
+        c.chapterName === initialChapterName || 
+        c.chapterName.includes(initialChapterName) || 
+        initialChapterName.includes(c.chapterName)
+      );
+      if (found) {
+        setSelectedChapter(found);
+        const availableSets = found.availableSourceSets || [];
+        setSelectedTeacherSets(availableSets.length > 0 ? availableSets : ['ishak']);
+        setSelectedTopics([]);
+        setCurrentStep(initialStep || 'teacher_set');
+      }
     }
-    return { rawList: [], hasTeacherSets: false };
-  };
+  }, [initialSubject, initialPaper, initialChapterName, initialStep, allQuestions]);
 
-  // Open modal for selected chapter & initial mode
-  const handleOpenSetup = (chapterIdx: number, chapterName: string, initialMode: 'quiz' | 'exam') => {
-    const { rawList, hasTeacherSets } = getChapterData(currentSubjectId || '', chapterIdx);
-    if (!rawList || rawList.length === 0) return;
+  const currentSubjectConfig = useMemo(() => {
+    return MEDICAL_PRACTICE_SUBJECTS.find(s => s.key === selectedSubject) || MEDICAL_PRACTICE_SUBJECTS[0];
+  }, [selectedSubject]);
 
-    const chapNumberLabel = `${getBanglaNumber(chapterIdx + 1)} অধ্যায়`;
+  // Available Chapters for current Subject & Paper
+  const availableChapters = useMemo(() => {
+    return getChaptersForSelection(selectedSubject, selectedPaper, allQuestions);
+  }, [selectedSubject, selectedPaper, allQuestions]);
 
-    setActiveChapter({
-      chapterIdx,
-      chapterName,
-      chapterNumberLabel: chapNumberLabel,
-      rawList,
-      hasTeacherSets
+  // Available Teacher Sets for selected Chapter
+  const teacherSets = useMemo(() => {
+    if (!selectedChapter) return [];
+    return getTeacherSetsForChapter(
+      selectedSubject, 
+      selectedPaper, 
+      selectedChapter.chapterName, 
+      allQuestions
+    );
+  }, [selectedSubject, selectedPaper, selectedChapter, allQuestions]);
+
+  // Available Topics for selected Teacher Sets
+  const availableTopics = useMemo(() => {
+    if (!selectedChapter || selectedTeacherSets.length === 0) return [];
+    return getTopicsForSelectedSets(
+      selectedSubject,
+      selectedPaper,
+      selectedChapter.chapterName,
+      selectedTeacherSets,
+      allQuestions
+    );
+  }, [selectedSubject, selectedPaper, selectedChapter, selectedTeacherSets, allQuestions]);
+
+  // Filtered pool of questions based on full selection
+  const matchingQuestions = useMemo(() => {
+    if (!selectedChapter || selectedTeacherSets.length === 0 || selectedTopics.length === 0) {
+      return [];
+    }
+    return filterMedicalPracticeQuestions(allQuestions, {
+      subject: selectedSubject,
+      paper: selectedPaper,
+      chapterName: selectedChapter.chapterName,
+      selectedSourceSets: selectedTeacherSets,
+      selectedTopics: selectedTopics
     });
+  }, [allQuestions, selectedSubject, selectedPaper, selectedChapter, selectedTeacherSets, selectedTopics]);
 
-    setSelectedMode(initialMode);
-    setSelectedTeacher('all');
-    setSelectedTopic('all');
-
-    // Rule: Default selectedQuestionCount MUST be null
-    setSelectedQuestionCount(null);
-
-    // Time defaults
-    if (initialMode === 'quiz') {
-      setPracticeTimeOption('no_limit');
-      setCustomTimeMinutes('15');
-    } else {
-      setPracticeTimeOption('custom');
-      setCustomTimeMinutes(''); // Empty default in exam mode
+  // Automatically adjust selected question count if matching count changes
+  useEffect(() => {
+    if (typeof selectedQuestionCount === 'number' && selectedQuestionCount > matchingQuestions.length) {
+      setSelectedQuestionCount('all');
     }
+  }, [matchingQuestions.length, selectedQuestionCount]);
 
-    // If teacher sets exist, open teacher selection first, else jump straight to mode setup
-    if (hasTeacherSets) {
-      setStep('teacher_select');
+  // Handlers for Navigation
+  const handleSelectSubject = (subjectKey: MedicalSubject) => {
+    setSelectedSubject(subjectKey);
+    const subConfig = MEDICAL_PRACTICE_SUBJECTS.find(s => s.key === subjectKey);
+    if (subConfig?.hasPapers) {
+      setSelectedPaper('first');
+      setCurrentStep('paper');
     } else {
-      setStep('mode_setup');
+      setSelectedPaper('not_applicable');
+      setCurrentStep('chapter');
     }
-
-    setSetupModalOpen(true);
+    setSelectedChapter(null);
+    setSelectedTeacherSets([]);
+    setSelectedTopics([]);
+    setValidationError(null);
   };
 
-  // Active Questions Filtered by Teacher Set & Topic
-  const getFilteredQuestions = () => {
-    if (!activeChapter) return [];
-    let list = [...activeChapter.rawList];
-
-    if (activeChapter.hasTeacherSets && selectedTeacher !== 'all') {
-      list = list.filter(q => q.author === selectedTeacher);
-    }
-    if (selectedTopic !== 'all') {
-      list = list.filter(q => q.topic === selectedTopic);
-    }
-    return list;
+  const handleSelectPaper = (paperKey: 'first' | 'second' | 'not_applicable') => {
+    setSelectedPaper(paperKey);
+    setSelectedChapter(null);
+    setSelectedTeacherSets([]);
+    setSelectedTopics([]);
+    setCurrentStep('chapter');
+    setValidationError(null);
   };
 
-  const currentFiltered = getFilteredQuestions();
-  const totalAvailableCount = currentFiltered.length;
+  const handleSelectChapter = (chap: MedicalChapterInfo) => {
+    if (!chap || chap.publishedQuestionCount <= 0) return;
+    setSelectedChapter(chap);
+    // Pre-select all available sets for this chapter
+    const availableSets = chap.availableSourceSets || [];
+    setSelectedTeacherSets(availableSets.length > 0 ? availableSets : ['ishak']);
+    setSelectedTopics([]);
+    setCurrentStep('teacher_set');
+    setValidationError(null);
+  };
 
-  // If filtered questions list shrinks below currently selected count, reset selected count to null
-  React.useEffect(() => {
-    if (selectedQuestionCount !== null && totalAvailableCount > 0 && selectedQuestionCount > totalAvailableCount) {
-      setSelectedQuestionCount(null);
-    }
-  }, [totalAvailableCount, selectedQuestionCount]);
-
-  // Generate valid question count options strictly <= available questions
-  const getValidQuestionCounts = (totalCount: number) => {
-    if (totalCount <= 0) return [];
-    const standardOptions = [10, 20, 30, 50];
-    const validCounts = standardOptions.filter(n => n < totalCount);
-
-    const choices: { count: number; label: string; isAll?: boolean }[] = validCounts.map(n => ({
-      count: n,
-      label: `${getBanglaNumber(n)}টি প্রশ্ন`
-    }));
-
-    choices.push({
-      count: totalCount,
-      label: `সব ${getBanglaNumber(totalCount)}টি প্রশ্ন`,
-      isAll: true
+  const handleToggleTeacherSet = (setId: TeacherSourceSet) => {
+    setSelectedTeacherSets(prev => {
+      const exists = prev.includes(setId);
+      if (exists) {
+        return prev.filter(id => id !== setId);
+      } else {
+        return [...prev, setId];
+      }
     });
-
-    return choices;
+    // Reset topics when teacher set changes
+    setSelectedTopics([]);
   };
 
-  // Available topics for active chapter
-  const activeTopics = activeChapter ? Array.from(new Set(activeChapter.rawList.map(q => q.topic))).filter(Boolean) : [];
-
-  // Parse & validate time input (1 to 180 minutes)
-  const parseAndValidateTime = () => {
-    if (selectedMode === 'quiz' && practiceTimeOption === 'no_limit') {
-      return { isValid: true, minutes: 0, error: null };
-    }
-
-    const trimmed = customTimeMinutes.trim();
-    if (trimmed === '') {
-      return { 
-        isValid: false, 
-        minutes: null, 
-        error: selectedMode === 'exam' || practiceTimeOption === 'custom' ? '১ থেকে ১৮০ মিনিটের মধ্যে একটি পূর্ণসংখ্যা লিখুন' : null 
-      };
-    }
-
-    const val = Number(trimmed);
-    if (!Number.isInteger(val) || val < 1 || val > 180) {
-      return { 
-        isValid: false, 
-        minutes: null, 
-        error: '১ থেকে ১৮০ মিনিটের মধ্যে একটি পূর্ণসংখ্যা লিখুন' 
-      };
-    }
-
-    return { isValid: true, minutes: val, error: null };
+  const handleSelectAllTeacherSets = () => {
+    const available = teacherSets.filter(t => t.isAvailable).map(t => t.id);
+    setSelectedTeacherSets(available);
+    setSelectedTopics([]);
   };
 
-  const timeValidation = parseAndValidateTime();
-  const isTimeValid = timeValidation.isValid;
-  const timeError = timeValidation.error;
-  const parsedTimeMinutes = timeValidation.minutes;
+  const handleClearAllTeacherSets = () => {
+    setSelectedTeacherSets([]);
+    setSelectedTopics([]);
+  };
 
-  // Start test/practice execution
-  const handleStartTest = () => {
-    if (!activeChapter || currentFiltered.length === 0) return;
-    if (selectedQuestionCount === null || !isTimeValid) return;
-
-    const countToTake = Math.min(selectedQuestionCount, currentFiltered.length);
-    const questionsToUse = currentFiltered.slice(0, countToTake);
-
-    let subjectPrefix = 'পদার্থবিজ্ঞান ১ম';
-    if (selectedMainSubject === 'chemistry') subjectPrefix = selectedPaper === '1st' ? 'রসায়ন ১ম' : 'রসায়ন ২য়';
-    if (selectedMainSubject === 'biology') subjectPrefix = selectedPaper === '1st' ? 'জীববিজ্ঞান ১ম' : 'জীববিজ্ঞান ২য়';
-
-    let title = `${subjectPrefix} — ${activeChapter.chapterName}`;
-    if (activeChapter.hasTeacherSets && selectedTeacher !== 'all') {
-      title += ` (${selectedTeacher})`;
+  const handleProceedToTopics = () => {
+    if (selectedTeacherSets.length === 0) {
+      setValidationError('অনুগ্রহ করে অন্তত একটি প্রশ্ন সেট নির্বাচন করুন।');
+      return;
     }
-    if (selectedTopic !== 'all') {
-      title += ` - ${selectedTopic}`;
+    setValidationError(null);
+    // Automatically pre-select all available topics
+    const topics = getTopicsForSelectedSets(
+      selectedSubject,
+      selectedPaper,
+      selectedChapter?.chapterName || '',
+      selectedTeacherSets,
+      allQuestions
+    );
+    setSelectedTopics(topics.map(t => t.topicName));
+    setCurrentStep('topic');
+  };
+
+  const handleToggleTopic = (topicName: string) => {
+    setSelectedTopics(prev => {
+      const exists = prev.includes(topicName);
+      if (exists) {
+        return prev.filter(t => t !== topicName);
+      } else {
+        return [...prev, topicName];
+      }
+    });
+  };
+
+  const handleSelectAllTopics = () => {
+    setSelectedTopics(availableTopics.map(t => t.topicName));
+  };
+
+  const handleClearAllTopics = () => {
+    setSelectedTopics([]);
+  };
+
+  const handleProceedToSetup = () => {
+    if (selectedTopics.length === 0) {
+      setValidationError('অনুগ্রহ করে অন্তত একটি টপিক নির্বাচন করুন।');
+      return;
+    }
+    setValidationError(null);
+    setCurrentStep('setup');
+  };
+
+  // Start Practice or Exam
+  const handleStartExamOrPractice = () => {
+    setValidationError(null);
+
+    if (matchingQuestions.length === 0) {
+      setValidationError('নির্বাচিত সেট ও টপিকের জন্য এখনো কোনো প্রকাশিত প্রশ্ন পাওয়া যায়নি।');
+      return;
     }
 
-    const totalMinutes = parsedTimeMinutes || 0;
-    const timeLimitPerQuestion = totalMinutes > 0
-      ? Math.max(15, Math.floor((totalMinutes * 60) / questionsToUse.length))
-      : 30;
+    let timeLimitMinutes: number | null = null;
 
-    const formattedQuestions = questionsToUse.map((q: any, idx: number) => ({
-      id: idx + 1,
-      question_text: q.question_text,
-      options: q.options,
-      correct_answer: q.correct_answer,
-      explanation: (q.explanation || '') + (q.author ? ` [লেখক: ${q.author}]` : '') + (q.ref ? ` [Ref: ${q.ref}]` : ''),
-      topic: q.topic,
-      time_limit: timeLimitPerQuestion
-    }));
+    if (selectedMode === 'exam') {
+      // In Exam Mode, custom total time is required
+      const parsedTime = parseInt(customTimeMinutes.trim(), 10);
+      if (!customTimeMinutes.trim() || isNaN(parsedTime) || parsedTime <= 0) {
+        setValidationError('পরীক্ষা মোডের জন্য মোট সময় (মিনিট) নির্ধারণ করা আবশ্যক।');
+        return;
+      }
+      timeLimitMinutes = parsedTime;
+    } else {
+      // In Practice Mode
+      if (practiceTimeOption === 'custom') {
+        const parsedTime = parseInt(customTimeMinutes.trim(), 10);
+        if (!customTimeMinutes.trim() || isNaN(parsedTime) || parsedTime <= 0) {
+          setValidationError('অনুগ্রহ করে মোট সময় (মিনিট) সঠিকভাবে লিখুন অথবা "সময় ছাড়া অনুশীলন" বেছে নিন।');
+          return;
+        }
+        timeLimitMinutes = parsedTime;
+      } else {
+        timeLimitMinutes = 0; // Untimed practice
+      }
+    }
 
-    setSetupModalOpen(false);
+    // Determine final questions slice
+    let finalItems = [...matchingQuestions];
+    if (typeof selectedQuestionCount === 'number' && selectedQuestionCount > 0) {
+      finalItems = finalItems.slice(0, selectedQuestionCount);
+    }
 
-    if (onStartCustomTest && formattedQuestions.length > 0) {
-      onStartCustomTest(formattedQuestions, title, selectedMode);
-    } else if (currentSyllabusSubject) {
-      onStartQuiz(currentSyllabusSubject, activeChapter.chapterIndex, selectedMode);
+    const quizQuestions = convertToQuizQuestions(finalItems);
+    const modeLabel = selectedMode === 'exam' ? 'পরীক্ষা' : 'অনুশীলন';
+    const paperLabel = currentSubjectConfig.hasPapers ? (selectedPaper === 'first' ? '১ম পত্র' : '২য় পত্র') : '';
+    const examTitle = `মেডিকেল ${currentSubjectConfig.name} ${paperLabel} - ${selectedChapter?.chapterName} (${modeLabel})`;
+
+    if (onStartCustomTest) {
+      onStartCustomTest(quizQuestions, examTitle, selectedMode, timeLimitMinutes);
     }
   };
 
-  return (
-    <div className="max-w-5xl mx-auto px-4 py-6 md:py-8 space-y-6 animate-in fade-in duration-300">
-      
-      {/* HEADER & BACK BUTTON */}
-      <div className="flex items-center justify-between gap-4">
-        <button
-          onClick={onBack}
-          className="bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>ড্যাশবোর্ডে ফিরে যান</span>
-        </button>
-
-        <div className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-3.5 py-1.5 rounded-2xl text-xs font-bold flex items-center gap-1.5">
-          <BookOpen className="w-4 h-4" />
-          <span>অনুশীলনী প্রশ্নব্যাংক</span>
+  // Render Step 1: Subject Selection
+  const renderSubjectStep = () => (
+    <div className="space-y-6">
+      <div className="text-center max-w-2xl mx-auto space-y-2">
+        <div className="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3.5 py-1.5 rounded-full text-emerald-400 text-xs font-extrabold tracking-wide">
+          <Sparkles className="w-3.5 h-3.5" />
+          মেডিকেল অনুশীলনী প্রশ্নব্যাংক
         </div>
-      </div>
-
-      {/* TITLE HERO */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">
-        <div className="absolute -right-8 -bottom-8 w-40 h-40 bg-sky-500/10 rounded-full blur-2xl pointer-events-none" />
-        <h1 className="text-2xl font-extrabold text-white">
-          মেডিকেল ও একাডেমিক অনুশীলন প্রশ্নব্যাংক
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-white">
+          অনুশীলনের বিষয় বেছে নিন
         </h1>
-        <p className="text-xs text-slate-400 mt-1 max-w-xl">
-          বিষয়, পত্র, অধ্যায় ও শিক্ষকভিত্তিক অনুশীলন প্রশ্নব্যাংক। আপনার পছন্দের অনুশীলনী বা পরীক্ষা মোড বেছে নিয়ে অনুশীলন শুরু করুন।
+        <p className="text-xs sm:text-sm text-slate-400">
+          প্রখ্যাত লেখকদের অনুশীলনী প্রশ্নাবলি ও টপিকভিত্তিক প্রশ্ন সমাধান।
         </p>
       </div>
 
-      {/* 1. SUBJECT SELECTOR TABS */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-        {subjectsList.map((sub) => {
-          const Icon = sub.icon;
-          const isSelected = selectedMainSubject === sub.key;
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-w-4xl mx-auto pt-2">
+        {MEDICAL_PRACTICE_SUBJECTS.map((sub) => {
+          const count = filterMedicalPracticeQuestions(allQuestions, { subject: sub.key }).length;
+          const isPhysics = sub.key === 'physics';
+          const isChemistry = sub.key === 'chemistry';
+          const isBiology = sub.key === 'biology';
+          const isEnglish = sub.key === 'english';
+
+          const IconComponent = isPhysics ? Atom : isChemistry ? FlaskConical : isBiology ? Dna : isEnglish ? Languages : Globe;
+          const colorClasses = isPhysics 
+            ? 'text-sky-400 bg-sky-500/10 border-sky-500/20 hover:border-sky-500/50'
+            : isChemistry
+            ? 'text-purple-400 bg-purple-500/10 border-purple-500/20 hover:border-purple-500/50'
+            : isBiology
+            ? 'text-teal-400 bg-teal-500/10 border-teal-500/20 hover:border-teal-500/50'
+            : isEnglish
+            ? 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20 hover:border-indigo-500/50'
+            : 'text-amber-400 bg-amber-500/10 border-amber-500/20 hover:border-amber-500/50';
+
           return (
             <button
               key={sub.key}
-              onClick={() => setSelectedMainSubject(sub.key)}
-              className={`p-4 rounded-2xl border flex flex-col items-center gap-2 text-center transition-all cursor-pointer ${
-                isSelected 
-                  ? 'bg-slate-800 border-cyan-500 text-white shadow-lg ring-1 ring-cyan-500/30' 
-                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-              }`}
+              onClick={() => handleSelectSubject(sub.key)}
+              className="bg-slate-900/90 border border-slate-800 hover:bg-slate-850 hover:border-slate-700 p-6 rounded-3xl text-left transition-all duration-200 shadow-lg hover:shadow-cyan-500/5 group flex flex-col justify-between cursor-pointer min-h-[140px]"
             >
-              <div className={`p-2 rounded-xl border ${sub.color}`}>
-                <Icon className="w-5 h-5" />
+              <div className="flex items-start justify-between">
+                <div className={`p-3 rounded-2xl border ${colorClasses}`}>
+                  <IconComponent className="w-6 h-6" />
+                </div>
+                {count > 0 ? (
+                  <span className="text-[11px] font-extrabold bg-slate-800 text-slate-300 px-3 py-1 rounded-full border border-slate-700">
+                    {toBanglaNumber(count)}টি প্রশ্ন
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-bold bg-amber-500/10 text-amber-400 px-3 py-1 rounded-full border border-amber-500/20">
+                    প্রশ্ন যুক্ত করা হচ্ছে
+                  </span>
+                )}
               </div>
-              <span className="text-xs font-bold">
-                {sub.name}
-              </span>
+              <div className="mt-4 flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-extrabold text-white group-hover:text-cyan-300 transition-colors">
+                    {sub.name}
+                  </h3>
+                  <span className="text-xs text-slate-400 font-medium">
+                    {sub.hasPapers ? '১ম ও ২য় পত্র' : 'সম্পূর্ণ সিলেবাস'}
+                  </span>
+                </div>
+                <div className="w-8 h-8 rounded-xl bg-slate-800 flex items-center justify-center text-slate-400 group-hover:text-cyan-400 group-hover:bg-cyan-500/10 transition-all">
+                  <ChevronRight className="w-4 h-4" />
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // Render Step 2: Paper Selection
+  const renderPaperStep = () => (
+    <div className="space-y-6 max-w-2xl mx-auto">
+      <div className="text-center space-y-2">
+        <h2 className="text-xl sm:text-2xl font-extrabold text-white">
+          {currentSubjectConfig.name}: পত্র নির্বাচন
+        </h2>
+        <p className="text-xs sm:text-sm text-slate-400">
+          অনুশীলন করার জন্য কাঙ্ক্ষিত পত্র বেছে নিন।
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {currentSubjectConfig.papers.map((paper) => {
+          const count = filterMedicalPracticeQuestions(allQuestions, {
+            subject: selectedSubject,
+            paper: paper.key
+          }).length;
+
+          return (
+            <button
+              key={paper.key}
+              onClick={() => handleSelectPaper(paper.key)}
+              className="bg-slate-900 border border-slate-800 hover:border-cyan-500/50 hover:bg-slate-850 p-6 rounded-3xl text-left transition-all group cursor-pointer shadow-lg"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-xs font-extrabold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-3 py-1 rounded-xl">
+                  {paper.label}
+                </span>
+                {count > 0 ? (
+                  <span className="text-xs font-bold text-slate-400 bg-slate-800 px-2.5 py-1 rounded-lg">
+                    {toBanglaNumber(count)}টি প্রশ্ন
+                  </span>
+                ) : (
+                  <span className="text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg">
+                    প্রশ্ন যুক্ত করা হচ্ছে
+                  </span>
+                )}
+              </div>
+              <h3 className="text-lg font-extrabold text-white group-hover:text-cyan-300 transition-colors">
+                {currentSubjectConfig.name} {paper.label}
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">
+                অধ্যায়ভিত্তিক শিক্ষক সেট ও টপিক অনুশীলন
+              </p>
             </button>
           );
         })}
       </div>
 
-      {/* 2. PAPER SELECTOR */}
-      {isPaperSubject && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-2 flex items-center justify-center gap-2 max-w-md mx-auto">
+      <div className="text-center pt-2">
+        <button
+          onClick={() => setCurrentStep('subject')}
+          className="text-xs font-bold text-slate-400 hover:text-white flex items-center gap-1.5 mx-auto transition-colors cursor-pointer"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          বিষয় নির্বাচনে ফিরে যান
+        </button>
+      </div>
+    </div>
+  );
+
+  // Render Step 3: Chapter Selection
+  const renderChapterStep = () => {
+    const paperLabel = currentSubjectConfig.hasPapers ? (selectedPaper === 'first' ? '১ম পত্র' : '২য় পত্র') : '';
+
+    return (
+      <div className="space-y-6 max-w-4xl mx-auto">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+          <div>
+            <span className="text-xs font-extrabold text-emerald-400 uppercase tracking-wider block">
+              {currentSubjectConfig.name} {paperLabel}
+            </span>
+            <h2 className="text-xl sm:text-2xl font-extrabold text-white mt-0.5">
+              অধ্যায় নির্বাচন করুন
+            </h2>
+          </div>
           <button
-            onClick={() => setSelectedPaper('1st')}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              selectedPaper === '1st'
-                ? 'bg-cyan-500 text-slate-950 shadow-md'
-                : 'text-slate-400 hover:text-white'
-            }`}
+            onClick={() => setCurrentStep(currentSubjectConfig.hasPapers ? 'paper' : 'subject')}
+            className="text-xs font-bold text-slate-400 hover:text-white bg-slate-900 border border-slate-800 px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
           >
-            ১ম পত্র
-          </button>
-          <button
-            onClick={() => setSelectedPaper('2nd')}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              selectedPaper === '2nd'
-                ? 'bg-cyan-500 text-slate-950 shadow-md'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            ২য় পত্র
+            <ArrowLeft className="w-3.5 h-3.5" />
+            পূর্ববর্তী
           </button>
         </div>
-      )}
 
-      {/* 3. CHAPTER HIERARCHY GRID */}
-      {currentSyllabusSubject && currentSyllabusSubject.chapters && currentSyllabusSubject.chapters.length > 0 ? (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-            <div>
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <span>{currentSyllabusSubject.name} — অধ্যায়সমূহ</span>
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                অনুশীলন বা পরীক্ষা শুরু করতে মোড বেছে নিন
-              </p>
-            </div>
-            <span className="text-xs font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-3 py-1 rounded-xl">
-              {getBanglaNumber(currentSyllabusSubject.chapters.length)}টি অধ্যায়
-            </span>
+        {availableChapters.length === 0 ? (
+          <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-8 text-center space-y-3">
+            <AlertCircle className="w-8 h-8 text-amber-400 mx-auto" />
+            <h3 className="text-base font-extrabold text-white">
+              এই অধ্যায়ের প্রশ্নব্যাংক প্রস্তুত হচ্ছে।
+            </h3>
+            <p className="text-xs text-slate-400 max-w-md mx-auto">
+              খুব শীঘ্রই নির্বাচিত বিষয়ের প্রখ্যাত লেখকদের অনুশীলনী প্রশ্ন এখানে সংযুক্ত করা হবে।
+            </p>
           </div>
-
+        ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-            {currentSyllabusSubject.chapters.map((chapterName, idx) => {
-              const { rawList, hasTeacherSets } = getChapterData(currentSubjectId || '', idx);
-              const qCount = rawList.length;
-              const hasQuestions = qCount > 0;
-              const chapterNumLabel = `${getBanglaNumber(idx + 1)} অধ্যায়`;
+            {availableChapters.map((chap, idx) => {
+              const hasQuestions = chap.publishedQuestionCount > 0;
 
               return (
                 <div
-                  key={idx}
-                  className={`border rounded-2xl p-4 flex flex-col justify-between gap-3 transition-all ${
-                    hasQuestions 
-                      ? 'bg-slate-950 border-slate-800 hover:border-slate-700 shadow-md' 
-                      : 'bg-slate-950/50 border-slate-800/50 opacity-75'
+                  key={chap.chapterId || chap.chapterName}
+                  className={`bg-slate-900/90 border p-5 rounded-3xl flex items-center justify-between gap-4 transition-all shadow-md ${
+                    hasQuestions
+                      ? 'border-slate-800 hover:border-slate-700'
+                      : 'border-slate-800/60 bg-slate-900/60'
                   }`}
                 >
-                  <div className="space-y-1.5">
-                    {/* Header Row: Chapter Number + Available Questions Count */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-extrabold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-0.5 rounded-lg">
-                        {chapterNumLabel}
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-extrabold bg-slate-800 text-cyan-400 px-2 py-0.5 rounded-md border border-slate-700">
+                        {chap.chapterNumberLabel || `${toBanglaNumber(idx + 1)} অধ্যায়`}
                       </span>
                       {hasQuestions ? (
-                        <span className="text-[11px] font-extrabold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-lg flex items-center gap-1">
-                          <Sparkles className="w-3 h-3" />
-                          <span>{getBanglaNumber(qCount)}টি প্রশ্ন উপলব্ধ</span>
+                        <span className="text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                          {toBanglaNumber(chap.publishedQuestionCount)}টি প্রশ্ন
                         </span>
                       ) : (
-                        <span className="text-[11px] font-bold text-amber-400/90 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-lg flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          <span>প্রশ্ন যুক্ত করা হচ্ছে</span>
+                        <span className="text-[11px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
+                          প্রশ্ন যুক্ত করা হচ্ছে
                         </span>
                       )}
                     </div>
-                    
-                    {/* Chapter Name */}
-                    <h3 className="text-sm font-bold text-white pt-1">
-                      {chapterName}
+                    <h3 className={`text-sm font-extrabold truncate ${hasQuestions ? 'text-white' : 'text-slate-300'}`}>
+                      {chap.chapterName}
                     </h3>
-
-                    {/* Optional Teacher Set Label if real teacher data exists */}
-                    {hasTeacherSets && (
-                      <div className="pt-0.5">
-                        <span className="text-[10px] font-bold text-sky-300 bg-sky-500/10 border border-sky-500/20 px-2 py-0.5 rounded-md inline-block">
-                          শিক্ষক সংকলন: ইসহাক স্যার • তপন স্যার • তোফাজ্জল স্যার
-                        </span>
-                      </div>
-                    )}
                   </div>
 
-                  {/* ACTION BUTTONS */}
-                  <div className="pt-2 border-t border-slate-800/80">
-                    {hasQuestions ? (
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          onClick={() => handleOpenSetup(idx, chapterName, 'quiz')}
-                          className="bg-gradient-to-r from-cyan-500 to-sky-500 hover:from-cyan-400 hover:to-sky-400 text-slate-950 font-extrabold py-2 px-3 rounded-xl text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
-                        >
-                          <BookOpen className="w-3.5 h-3.5" />
-                          <span>অনুশীলন মোড</span>
-                        </button>
-                        <button
-                          onClick={() => handleOpenSetup(idx, chapterName, 'exam')}
-                          className="bg-slate-900 hover:bg-slate-800 text-purple-300 border border-purple-500/30 hover:border-purple-500/60 font-extrabold py-2 px-3 rounded-xl text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                        >
-                          <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
-                          <span>পরীক্ষা মোড</span>
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="w-full py-2 bg-slate-900/60 border border-slate-800/80 rounded-xl text-center text-xs font-semibold text-slate-500 flex items-center justify-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5 text-slate-600" />
-                        <span>প্রশ্ন যুক্ত করা হচ্ছে</span>
-                      </div>
-                    )}
-                  </div>
+                  {hasQuestions ? (
+                    <button
+                      onClick={() => handleSelectChapter(chap)}
+                      className="bg-cyan-500/10 hover:bg-cyan-500 text-cyan-300 hover:text-slate-950 border border-cyan-500/30 text-xs font-extrabold px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 shrink-0 cursor-pointer shadow-sm"
+                    >
+                      <span>প্রশ্ন সেট বেছে নিন</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  ) : (
+                    <button
+                      disabled
+                      aria-disabled="true"
+                      className="bg-slate-800/70 text-slate-500 border border-slate-700/50 text-xs font-bold px-3.5 py-2 rounded-xl shrink-0 cursor-not-allowed opacity-75"
+                    >
+                      <span>প্রশ্ন যুক্ত করা হচ্ছে</span>
+                    </button>
+                  )}
                 </div>
               );
             })}
           </div>
-        </div>
-      ) : (
-        /* HONEST EMPTY STATE */
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-10 text-center space-y-4 shadow-xl max-w-xl mx-auto">
-          <div className="w-16 h-16 bg-slate-800 border border-slate-700 text-cyan-400 rounded-2xl flex items-center justify-center mx-auto">
-            <AlertCircle className="w-8 h-8" />
-          </div>
-          <div className="space-y-2">
-            <h3 className="text-lg font-bold text-white">
-              এই বিষয়ের প্রশ্নব্যাংক প্রস্তুত হচ্ছে।
-            </h3>
-            <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-              পদার্থবিজ্ঞান ১ম পত্রের ৪র্থ অধ্যায় (নিউটনীয় বলবিদ্যা) ও ৬ষ্ঠ অধ্যায় (মহাকর্ষ ও অভিকর্ষ) সম্পূর্ণ প্রস্তুত আছে।
-            </p>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
+    );
+  };
 
-      {/* SETUP MODAL FLOW */}
-      {setupModalOpen && activeChapter && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 max-w-2xl w-full shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
-            
-            {/* MODAL HEADER */}
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2.5 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 rounded-2xl">
-                  <BookMarked className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-extrabold text-white">
-                    {step === 'mode_setup' && selectedTeacher !== 'all'
-                      ? `${activeChapter.chapterName} — ${selectedTeacher}`
-                      : `${activeChapter.chapterNumberLabel}: ${activeChapter.chapterName}`}
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    {step === 'teacher_select'
-                      ? 'প্রশ্ন সেট / শিক্ষক সংকলন নির্বাচন করুন'
-                      : `উৎস: ${selectedTeacher === 'all' ? 'সকল সংকলন' : selectedTeacher} | উপলব্ধ প্রশ্ন: ${getBanglaNumber(totalAvailableCount)}টি`}
-                  </p>
-                </div>
-              </div>
+  // Render Step 4: Teacher / Source Set Selection (Cards for Ishak, Topon, Pramanik)
+  const renderTeacherSetStep = () => {
+    const paperLabel = currentSubjectConfig.hasPapers ? (selectedPaper === 'first' ? '১ম পত্র' : '২য় পত্র') : '';
 
-              <button
-                onClick={() => setSetupModalOpen(false)}
-                className="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-xl transition-colors cursor-pointer"
+    return (
+      <div className="space-y-6 max-w-3xl mx-auto animate-in fade-in duration-200">
+        <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl shadow-lg space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-extrabold text-cyan-400">
+              {currentSubjectConfig.name} {paperLabel} → {selectedChapter?.chapterName}
+            </span>
+            <button
+              onClick={() => setCurrentStep('chapter')}
+              className="text-xs font-bold text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              অধ্যায় পরিবর্তন
+            </button>
+          </div>
+          <h2 className="text-xl sm:text-2xl font-extrabold text-white">
+            প্রশ্ন সেট বেছে নিন
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-400">
+            এক বা একাধিক শিক্ষক সেট নির্বাচন করে অনুশীলন করুন।
+          </p>
+        </div>
+
+        {/* Quick Selection Buttons */}
+        <div className="flex items-center justify-between gap-3 text-xs">
+          <button
+            onClick={handleSelectAllTeacherSets}
+            className="bg-slate-900 hover:bg-slate-800 text-slate-200 font-bold px-4 py-2 rounded-xl border border-slate-800 transition-colors cursor-pointer"
+          >
+            সব সেট নির্বাচন করুন
+          </button>
+          <button
+            onClick={handleClearAllTeacherSets}
+            className="bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-rose-300 font-bold px-4 py-2 rounded-xl border border-slate-800 transition-colors cursor-pointer"
+          >
+            সব নির্বাচন বাতিল করুন
+          </button>
+        </div>
+
+        {/* Teacher Cards */}
+        <div className={`grid grid-cols-1 ${teacherSets.length === 1 ? 'sm:grid-cols-1 max-w-md mx-auto w-full' : teacherSets.length === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-4`}>
+          {teacherSets.map((tSet) => {
+            const isSelected = selectedTeacherSets.includes(tSet.id);
+            const isDisabled = !tSet.isAvailable;
+
+            return (
+              <div
+                key={tSet.id}
+                onClick={() => !isDisabled && handleToggleTeacherSet(tSet.id)}
+                className={`p-5 rounded-3xl border transition-all select-none ${
+                  isDisabled
+                    ? 'bg-slate-950/50 border-slate-900 opacity-50 cursor-not-allowed'
+                    : isSelected
+                    ? 'bg-cyan-950/20 border-cyan-500/60 shadow-lg shadow-cyan-500/10 cursor-pointer'
+                    : 'bg-slate-900 border-slate-800 hover:border-slate-700 cursor-pointer'
+                }`}
               >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+                <div className="flex items-start justify-between">
+                  <div
+                    className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-colors ${
+                      isSelected
+                        ? 'bg-cyan-500 border-cyan-400 text-slate-950'
+                        : 'border-slate-700 bg-slate-950'
+                    }`}
+                  >
+                    {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                  </div>
 
-            {/* STEP 1: TEACHER SET SELECTION */}
-            {step === 'teacher_select' && activeChapter.hasTeacherSets && (
-              <div className="space-y-4">
-                <div className="space-y-1">
-                  <h4 className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                    <Layers className="w-4 h-4 text-sky-400" />
-                    <span>প্রশ্ন সেট / শিক্ষক সংকলন নির্বাচন করুন:</span>
-                  </h4>
-                  <p className="text-[11px] text-slate-400">
-                    পছন্দের লেখকের প্রশ্ন সেট বেছে নিন। প্রতিটি সেটের প্রশ্ন সংখ্যা আলাদা।
+                  <span
+                    className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border ${
+                      isDisabled
+                        ? 'bg-slate-900 text-slate-500 border-slate-800'
+                        : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                    }`}
+                  >
+                    {toBanglaNumber(tSet.questionCount)}টি প্রশ্ন
+                  </span>
+                </div>
+
+                <div className="mt-4">
+                  <h3 className={`text-base font-extrabold ${isSelected ? 'text-cyan-300' : 'text-white'}`}>
+                    {tSet.name}
+                  </h3>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    {isDisabled ? 'এই সেটের প্রশ্ন প্রস্তুত হচ্ছে' : 'অনুশীলনী মূল প্রশ্নাবলি'}
                   </p>
                 </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Option: All Questions */}
-                  <button
-                    onClick={() => {
-                      setSelectedTeacher('all');
-                      setStep('mode_setup');
-                    }}
-                    className={`p-4 rounded-2xl border text-left transition-all cursor-pointer hover:scale-[1.01] ${
-                      selectedTeacher === 'all'
-                        ? 'bg-sky-500/15 border-sky-500 text-white shadow-lg ring-1 ring-sky-500/30'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between font-extrabold text-sm text-white">
-                      <span>সকল শিক্ষক সংকলন</span>
-                      <span className="text-xs text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-lg border border-sky-500/20">
-                        {getBanglaNumber(activeChapter.rawList.length)}টি প্রশ্ন
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-1.5">সব শিক্ষক প্রশ্ন একত্রে অনুশীিলন করুন</p>
-                  </button>
-
-                  {/* Option: Isahaq Sir */}
-                  <button
-                    onClick={() => {
-                      setSelectedTeacher('ইসহাক স্যার');
-                      setStep('mode_setup');
-                    }}
-                    className={`p-4 rounded-2xl border text-left transition-all cursor-pointer hover:scale-[1.01] ${
-                      selectedTeacher === 'ইসহাক স্যার'
-                        ? 'bg-sky-500/15 border-sky-500 text-white shadow-lg ring-1 ring-sky-500/30'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between font-extrabold text-sm text-white">
-                      <span>সেট ১: ইসহাক স্যার</span>
-                      <span className="text-xs text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-lg border border-sky-500/20">
-                        {getBanglaNumber(activeChapter.rawList.filter(q => q.author === 'ইসহাক স্যার').length)}টি প্রশ্ন
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-1.5">বোর্ড ও বিশ্ববিদ্যালয় সম্পর্কিত স্ট্যান্ডার্ড প্রশ্ন</p>
-                  </button>
-
-                  {/* Option: Tapan Sir */}
-                  <button
-                    onClick={() => {
-                      setSelectedTeacher('তপন স্যার');
-                      setStep('mode_setup');
-                    }}
-                    className={`p-4 rounded-2xl border text-left transition-all cursor-pointer hover:scale-[1.01] ${
-                      selectedTeacher === 'তপন স্যার'
-                        ? 'bg-sky-500/15 border-sky-500 text-white shadow-lg ring-1 ring-sky-500/30'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between font-extrabold text-sm text-white">
-                      <span>সেট ২: তপন স্যার</span>
-                      <span className="text-xs text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-lg border border-sky-500/20">
-                        {getBanglaNumber(activeChapter.rawList.filter(q => q.author === 'তপন স্যার').length)}টি প্রশ্ন
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-1.5">অনুশীলনী ভিত্তিক কনসেপচুয়াল প্রশ্নাবলি</p>
-                  </button>
-
-                  {/* Option: Tofazzal Sir */}
-                  <button
-                    onClick={() => {
-                      setSelectedTeacher('তোফাজ্জল স্যার');
-                      setStep('mode_setup');
-                    }}
-                    className={`p-4 rounded-2xl border text-left transition-all cursor-pointer hover:scale-[1.01] ${
-                      selectedTeacher === 'তোফাজ্জল স্যার'
-                        ? 'bg-sky-500/15 border-sky-500 text-white shadow-lg ring-1 ring-sky-500/30'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between font-extrabold text-sm text-white">
-                      <span>সেট ৩: তোফাজ্জল স্যার</span>
-                      <span className="text-xs text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-lg border border-sky-500/20">
-                        {getBanglaNumber(activeChapter.rawList.filter(q => q.author === 'তোফাজ্জল স্যার').length)}টি প্রশ্ন
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-1.5">বিশেষ মেডিকেল স্ট্যান্ডার্ড প্রশ্ন সংকলন</p>
-                  </button>
-                </div>
-
-                {/* Optional Topic Filter */}
-                {activeTopics.length > 0 && (
-                  <div className="pt-2 space-y-2">
-                    <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                      <Filter className="w-4 h-4 text-emerald-400" />
-                      <span>টপিক ফিল্টার (ঐচ্ছিক):</span>
-                    </label>
-                    <select
-                      value={selectedTopic}
-                      onChange={(e) => setSelectedTopic(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 text-white text-xs rounded-xl p-3 focus:outline-none focus:border-sky-500"
-                    >
-                      <option value="all">সকল টপিক ({getBanglaNumber(activeTopics.length)}টি টপিক)</option>
-                      {activeTopics.map((top, i) => (
-                        <option key={i} value={top}>{top}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
               </div>
-            )}
+            );
+          })}
+        </div>
 
-            {/* STEP 2: MODE SETUP SCREEN */}
-            {step === 'mode_setup' && (
-              <div className="space-y-5">
-                
-                {/* Back to Teacher Step Button if Teacher Sets Exist */}
-                {activeChapter.hasTeacherSets && (
-                  <button
-                    onClick={() => setStep('teacher_select')}
-                    className="text-xs font-bold text-sky-400 hover:text-sky-300 flex items-center gap-1 transition-colors cursor-pointer"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                    <span>শিক্ষক সংকলন পরিবর্তন করুন</span>
-                  </button>
-                )}
+        {validationError && (
+          <div className="bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-bold p-3.5 rounded-2xl flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{validationError}</span>
+          </div>
+        )}
 
-                {/* MODE CARDS (2 CARDS) */}
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-300">
-                    মোড নির্বাচন করুন:
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    
-                    {/* Card A: Practice Mode */}
-                    <div
-                      onClick={() => setSelectedMode('quiz')}
-                      className={`p-4 rounded-2xl border flex flex-col justify-between gap-3 cursor-pointer transition-all ${
-                        selectedMode === 'quiz'
-                          ? 'bg-cyan-500/10 border-cyan-500 ring-1 ring-cyan-500/40 text-white shadow-xl'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                      }`}
-                    >
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-extrabold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-0.5 rounded-lg flex items-center gap-1">
-                            <BookOpen className="w-3.5 h-3.5" />
-                            <span>অনুশীলন মোড</span>
-                          </span>
-                          {selectedMode === 'quiz' && (
-                            <CheckCircle2 className="w-5 h-5 text-cyan-400" />
-                          )}
-                        </div>
+        {/* Action Bar */}
+        <div className="flex items-center justify-between pt-2">
+          <button
+            onClick={() => setCurrentStep('chapter')}
+            className="text-xs font-bold text-slate-400 hover:text-white bg-slate-900 border border-slate-800 px-4 py-2.5 rounded-xl cursor-pointer"
+          >
+            পূর্ববর্তী
+          </button>
+          <button
+            onClick={handleProceedToTopics}
+            disabled={selectedTeacherSets.length === 0}
+            className="bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-extrabold text-xs px-6 py-3 rounded-2xl transition-all shadow-lg hover:shadow-cyan-500/20 flex items-center gap-2 cursor-pointer"
+          >
+            <span>পরবর্তী: টপিক নির্বাচন</span>
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    );
+  };
 
-                        <p className="text-xs font-semibold text-slate-200">
-                          প্রতিটি প্রশ্নের উত্তর দেওয়ার পর ব্যাখ্যা দেখুন।
-                        </p>
+  // Render Step 5: Topic Selection
+  const renderTopicStep = () => {
+    const selectedSetLabels = selectedTeacherSets
+      .map(id => TEACHER_SOURCE_SETS.find(t => t.id === id)?.label)
+      .filter(Boolean)
+      .join(', ');
 
-                        <ul className="text-[11px] text-slate-300 space-y-1 pt-1">
-                          <li className="flex items-center gap-1.5">
-                            <Check className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                            <span>তাৎক্ষণিক সঠিক/ভুল উত্তর প্রদর্শন</span>
-                          </li>
-                          <li className="flex items-center gap-1.5">
-                            <Check className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                            <span>প্রতিটি উত্তরের পর বিস্তারিত ব্যাখ্যা</span>
-                          </li>
-                          <li className="flex items-center gap-1.5">
-                            <Check className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                            <span>ইচ্ছেমতো স্কিপ করার সুবিধা</span>
-                          </li>
-                          <li className="flex items-center gap-1.5">
-                            <Check className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                            <span>কাস্টম টাইমার ঐচ্ছিক</span>
-                          </li>
-                        </ul>
-                      </div>
+    return (
+      <div className="space-y-6 max-w-3xl mx-auto animate-in fade-in duration-200">
+        <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl shadow-lg space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-extrabold text-cyan-400">
+              নির্বাচিত সেট: {selectedSetLabels}
+            </span>
+            <button
+              onClick={() => setCurrentStep('teacher_set')}
+              className="text-xs font-bold text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              সেট পরিবর্তন
+            </button>
+          </div>
+          <h2 className="text-xl sm:text-2xl font-extrabold text-white">
+            টপিক বেছে নিন
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-400">
+            নির্বাচিত শিক্ষক সেটের অন্তর্ভুক্ত টপিকসমূহ:
+          </p>
+        </div>
 
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedMode('quiz');
-                        }}
-                        className={`w-full py-2 rounded-xl text-xs font-extrabold transition-all ${
-                          selectedMode === 'quiz'
-                            ? 'bg-cyan-500 text-slate-950 shadow-md'
-                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                        }`}
-                      >
-                        {selectedMode === 'quiz' ? '✓ অনুশীলন মোড সক্রিয়' : 'অনুশীলন বেছে নিন'}
-                      </button>
-                    </div>
+        {/* Quick Selection Buttons */}
+        <div className="flex items-center justify-between gap-3 text-xs">
+          <button
+            onClick={handleSelectAllTopics}
+            className="bg-slate-900 hover:bg-slate-800 text-slate-200 font-bold px-4 py-2 rounded-xl border border-slate-800 transition-colors cursor-pointer"
+          >
+            সব টপিক নির্বাচন করুন
+          </button>
+          <button
+            onClick={handleClearAllTopics}
+            className="bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-rose-300 font-bold px-4 py-2 rounded-xl border border-slate-800 transition-colors cursor-pointer"
+          >
+            সব টপিক বাতিল করুন
+          </button>
+        </div>
 
-                    {/* Card B: Exam Mode */}
-                    <div
-                      onClick={() => setSelectedMode('exam')}
-                      className={`p-4 rounded-2xl border flex flex-col justify-between gap-3 cursor-pointer transition-all ${
-                        selectedMode === 'exam'
-                          ? 'bg-purple-500/10 border-purple-500 ring-1 ring-purple-500/40 text-white shadow-xl'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                      }`}
-                    >
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-extrabold text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2.5 py-0.5 rounded-lg flex items-center gap-1">
-                            <ShieldCheck className="w-3.5 h-3.5" />
-                            <span>পরীক্ষা মোড</span>
-                          </span>
-                          {selectedMode === 'exam' && (
-                            <CheckCircle2 className="w-5 h-5 text-purple-400" />
-                          )}
-                        </div>
+        {/* Topics List */}
+        <div className="space-y-2.5">
+          {availableTopics.map((top) => {
+            const isSelected = selectedTopics.includes(top.topicName);
 
-                        <p className="text-xs font-semibold text-slate-200">
-                          নির্ধারিত সময়ের মধ্যে উত্তর দিন। পরীক্ষা শেষে পূর্ণ ফলাফল ও ব্যাখ্যা দেখুন।
-                        </p>
-
-                        <ul className="text-[11px] text-slate-300 space-y-1 pt-1">
-                          <li className="flex items-center gap-1.5">
-                            <Check className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                            <span>পরীক্ষা চলাকালীন উত্তর গোপন থাকবে</span>
-                          </li>
-                          <li className="flex items-center gap-1.5">
-                            <Check className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                            <span>লাইভ কাউন্টডাউন টাইমার দৃশ্যমান</span>
-                          </li>
-                          <li className="flex items-center gap-1.5">
-                            <Check className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                            <span>পরীক্ষা শেষে পূর্ণাঙ্গ পারফরম্যান্স কার্ড</span>
-                          </li>
-                          <li className="flex items-center gap-1.5">
-                            <Check className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                            <span>প্রকৃত মেডিকেল পরীক্ষার অভিজ্ঞতা</span>
-                          </li>
-                        </ul>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedMode('exam');
-                        }}
-                        className={`w-full py-2 rounded-xl text-xs font-extrabold transition-all ${
-                          selectedMode === 'exam'
-                            ? 'bg-purple-500 text-slate-950 shadow-md'
-                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                        }`}
-                      >
-                        {selectedMode === 'exam' ? '✓ পরীক্ষা মোড সক্রিয়' : 'পরীক্ষা মোড বেছে নিন'}
-                      </button>
-                    </div>
-
-                  </div>
-                </div>
-
-                {/* QUESTION COUNT SELECTION */}
-                <div className="space-y-2 pt-1">
-                  <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
-                    <span>প্রশ্নের সংখ্যা নির্বাচন করুন:</span>
-                    <span className="text-[11px] text-sky-400 font-normal">
-                      উত্তোলনযোগ্য: {getBanglaNumber(totalAvailableCount)}টি প্রশ্ন
-                    </span>
-                  </label>
-
-                  <div className="flex flex-wrap gap-2">
-                    {getValidQuestionCounts(totalAvailableCount).map((opt) => (
-                      <button
-                        key={opt.count}
-                        type="button"
-                        onClick={() => setSelectedQuestionCount(opt.count)}
-                        className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
-                          selectedQuestionCount === opt.count
-                            ? selectedMode === 'exam'
-                              ? 'bg-purple-500 text-slate-950 shadow-md ring-2 ring-purple-400'
-                              : 'bg-cyan-500 text-slate-950 shadow-md ring-2 ring-cyan-400'
-                            : 'bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                  {selectedQuestionCount === null && (
-                    <p className="text-xs text-amber-400 font-medium flex items-center gap-1 mt-1">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                      <span>প্রথমে প্রশ্ন সংখ্যা নির্বাচন করুন</span>
-                    </p>
-                  )}
-                </div>
-
-                {/* TIME LIMIT CUSTOMIZATION */}
-                <div className="space-y-3 pt-1">
-                  <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                    <Timer className="w-4 h-4 text-cyan-400" />
-                    <span>সময়সীমা নির্ধারণ করুন:</span>
-                  </label>
-
-                  {selectedMode === 'quiz' ? (
-                    <div className="space-y-3">
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setPracticeTimeOption('no_limit')}
-                          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
-                            practiceTimeOption === 'no_limit'
-                              ? 'bg-cyan-500 text-slate-950 shadow-md font-extrabold ring-2 ring-cyan-400'
-                              : 'bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700'
-                          }`}
-                        >
-                          সময় ছাড়া অনুশীলন
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPracticeTimeOption('custom');
-                            if (!customTimeMinutes) setCustomTimeMinutes('15');
-                          }}
-                          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
-                            practiceTimeOption === 'custom'
-                              ? 'bg-cyan-500 text-slate-950 shadow-md font-extrabold ring-2 ring-cyan-400'
-                              : 'bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700'
-                          }`}
-                        >
-                          নিজের সময়
-                        </button>
-                      </div>
-
-                      {practiceTimeOption === 'custom' && (
-                        <div className="space-y-2 bg-slate-950 border border-slate-800 p-3.5 rounded-2xl animate-in fade-in">
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                            <label className="text-xs font-bold text-slate-300">
-                              সময় লিখুন (মিনিট):
-                            </label>
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="number"
-                                min="1"
-                                max="180"
-                                value={customTimeMinutes}
-                                onChange={(e) => setCustomTimeMinutes(e.target.value)}
-                                placeholder="১৫"
-                                className="w-24 bg-slate-900 border border-slate-700 text-white font-bold text-sm rounded-xl px-3 py-1.5 focus:outline-none focus:border-cyan-400 text-center"
-                              />
-                              <span className="text-xs text-slate-400 font-medium">মিনিট</span>
-                            </div>
-                          </div>
-
-                          {timeError && (
-                            <p className="text-xs text-rose-400 font-semibold flex items-center gap-1">
-                              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                              <span>{timeError}</span>
-                            </p>
-                          )}
-
-                          <div className="pt-1">
-                            <span className="text-[11px] text-slate-400 block mb-1.5">দ্রুত সময় নির্বাচন:</span>
-                            <div className="flex flex-wrap gap-1.5">
-                              {[5, 10, 15, 20, 30].map((mins) => (
-                                <button
-                                  key={mins}
-                                  type="button"
-                                  onClick={() => setCustomTimeMinutes(String(mins))}
-                                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                    customTimeMinutes === String(mins)
-                                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-extrabold'
-                                      : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200'
-                                  }`}
-                                >
-                                  {getBanglaNumber(mins)} মিনিট
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="space-y-2.5 bg-slate-950 border border-slate-800 p-3.5 rounded-2xl">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <label className="text-xs font-bold text-slate-300">
-                          পরীক্ষার সময় লিখুন (মিনিট):
-                        </label>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            min="1"
-                            max="180"
-                            value={customTimeMinutes}
-                            onChange={(e) => setCustomTimeMinutes(e.target.value)}
-                            placeholder="যেমন: ১৫"
-                            className="w-28 bg-slate-900 border border-slate-700 text-white font-bold text-sm rounded-xl px-3 py-1.5 focus:outline-none focus:border-purple-400 text-center"
-                          />
-                          <span className="text-xs text-slate-400 font-medium">মিনিট</span>
-                        </div>
-                      </div>
-
-                      {timeError && (
-                        <p className="text-xs text-rose-400 font-semibold flex items-center gap-1">
-                          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                          <span>{timeError}</span>
-                        </p>
-                      )}
-
-                      <div className="pt-1">
-                        <span className="text-[11px] text-slate-400 block mb-1.5">দ্রুত সময় নির্বাচন:</span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {[5, 10, 15, 20, 30].map((mins) => (
-                            <button
-                              key={mins}
-                              type="button"
-                              onClick={() => setCustomTimeMinutes(String(mins))}
-                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                customTimeMinutes === String(mins)
-                                  ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 font-extrabold'
-                                  : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200'
-                              }`}
-                            >
-                              {getBanglaNumber(mins)} মিনিট
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* SUMMARY PREVIEW */}
-                <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <span className="font-bold text-slate-400">নির্বাচন সংক্ষেপ:</span>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="px-2.5 py-1 rounded-lg font-bold bg-slate-900 border border-slate-700 text-slate-200">
-                      {selectedMode === 'exam' ? 'পরীক্ষা মোড' : 'অনুশীলন মোড'}
-                    </span>
-                    <span className={`px-2.5 py-1 rounded-lg font-bold ${
-                      selectedQuestionCount !== null
-                        ? 'bg-cyan-500/10 border border-cyan-500/30 text-cyan-300'
-                        : 'bg-amber-500/10 border border-amber-500/30 text-amber-300'
-                    }`}>
-                      {selectedQuestionCount !== null
-                        ? (selectedQuestionCount === totalAvailableCount
-                            ? `সব ${getBanglaNumber(totalAvailableCount)}টি প্রশ্ন`
-                            : `${getBanglaNumber(selectedQuestionCount)}টি প্রশ্ন`)
-                        : 'প্রশ্ন নির্বাচন করা হয়নি'}
-                    </span>
-                    <span className={`px-2.5 py-1 rounded-lg font-bold ${
-                      isTimeValid
-                        ? 'bg-purple-500/10 border border-purple-500/30 text-purple-300'
-                        : 'bg-amber-500/10 border border-amber-500/30 text-amber-300'
-                    }`}>
-                      {selectedMode === 'quiz' && practiceTimeOption === 'no_limit'
-                        ? 'সময় ছাড়া'
-                        : (isTimeValid && parsedTimeMinutes !== null ? `${getBanglaNumber(parsedTimeMinutes)} মিনিট` : 'সময় দেওয়া হয়নি')}
-                    </span>
-                  </div>
-                </div>
-
-                {/* PRIMARY START ACTION */}
-                <div className="pt-3 border-t border-slate-800 flex items-center justify-between gap-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (activeChapter.hasTeacherSets) {
-                        setStep('teacher_select');
-                      } else {
-                        setSetupModalOpen(false);
-                      }
-                    }}
-                    className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
-                  >
-                    {activeChapter.hasTeacherSets ? '← শিক্ষক নির্বাচন' : 'বাতিল'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleStartTest}
-                    disabled={selectedQuestionCount === null || !isTimeValid}
-                    className={`flex-1 py-3.5 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-2 shadow-lg ${
-                      selectedQuestionCount === null || !isTimeValid
-                        ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700/50'
-                        : selectedMode === 'exam'
-                          ? 'bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-400 hover:to-indigo-400 text-slate-950 cursor-pointer'
-                          : 'bg-gradient-to-r from-cyan-500 to-sky-500 hover:from-cyan-400 hover:to-sky-400 text-slate-950 cursor-pointer'
+            return (
+              <div
+                key={top.topicName}
+                onClick={() => handleToggleTopic(top.topicName)}
+                className={`p-4 rounded-2xl border transition-all flex items-center justify-between gap-3 cursor-pointer select-none ${
+                  isSelected
+                    ? 'bg-cyan-950/20 border-cyan-500/60 shadow-sm'
+                    : 'bg-slate-900 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-colors ${
+                      isSelected
+                        ? 'bg-cyan-500 border-cyan-400 text-slate-950'
+                        : 'border-slate-700 bg-slate-950'
                     }`}
                   >
-                    <Play className="w-4 h-4 fill-current" />
-                    <span>
-                      {selectedQuestionCount === null
-                        ? 'প্রথমে প্রশ্ন সংখ্যা নির্বাচন করুন'
-                        : !isTimeValid
-                          ? 'সঠিক সময়সীমা লিখুন (১-১৮০ মিনিট)'
-                          : selectedMode === 'exam'
-                            ? `পরীক্ষা শুরু করুন (${
-                                selectedQuestionCount === totalAvailableCount
-                                  ? `সব ${getBanglaNumber(totalAvailableCount)}টি প্রশ্ন`
-                                  : `${getBanglaNumber(selectedQuestionCount)}টি প্রশ্ন`
-                              })`
-                            : `অনুশীলন শুরু করুন (${
-                                selectedQuestionCount === totalAvailableCount
-                                  ? `সব ${getBanglaNumber(totalAvailableCount)}টি প্রশ্ন`
-                                  : `${getBanglaNumber(selectedQuestionCount)}টি প্রশ্ন`
-                              })`}
-                    </span>
-                  </button>
+                    {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                  </div>
+                  <span className={`text-sm font-extrabold ${isSelected ? 'text-cyan-300' : 'text-white'}`}>
+                    {top.topicName}
+                  </span>
                 </div>
 
+                <span className="text-[11px] font-extrabold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-lg">
+                  {toBanglaNumber(top.questionCount)}টি প্রশ্ন
+                </span>
               </div>
-            )}
+            );
+          })}
+        </div>
 
+        {validationError && (
+          <div className="bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-bold p-3.5 rounded-2xl flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{validationError}</span>
+          </div>
+        )}
+
+        {/* Action Bar */}
+        <div className="flex items-center justify-between pt-2">
+          <button
+            onClick={() => setCurrentStep('teacher_set')}
+            className="text-xs font-bold text-slate-400 hover:text-white bg-slate-900 border border-slate-800 px-4 py-2.5 rounded-xl cursor-pointer"
+          >
+            পূর্ববর্তী
+          </button>
+          <button
+            onClick={handleProceedToSetup}
+            disabled={selectedTopics.length === 0}
+            className="bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-extrabold text-xs px-6 py-3 rounded-2xl transition-all shadow-lg hover:shadow-cyan-500/20 flex items-center gap-2 cursor-pointer"
+          >
+            <span>পরবর্তী: কাস্টম সেটআপ</span>
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // Render Step 6: Question Setup (Count + Mode + Custom Total Time)
+  const renderSetupStep = () => {
+    const totalMatching = matchingQuestions.length;
+
+    // Available question count options (strictly capping by totalMatching)
+    const countOptions: Array<{ label: string; value: number | 'all' }> = [];
+    if (totalMatching >= 10) countOptions.push({ label: '১০টি প্রশ্ন', value: 10 });
+    if (totalMatching >= 20) countOptions.push({ label: '২০টি প্রশ্ন', value: 20 });
+    if (totalMatching >= 30) countOptions.push({ label: '৩০টি প্রশ্ন', value: 30 });
+    if (totalMatching >= 50) countOptions.push({ label: '৫০টি প্রশ্ন', value: 50 });
+    countOptions.push({ label: `সব ${toBanglaNumber(totalMatching)}টি প্রশ্ন`, value: 'all' });
+
+    return (
+      <div className="space-y-6 max-w-2xl mx-auto animate-in fade-in duration-200">
+        <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl shadow-lg space-y-2 text-center">
+          <span className="text-xs font-extrabold text-cyan-400">
+            {selectedChapter?.chapterName}
+          </span>
+          <h2 className="text-xl sm:text-2xl font-extrabold text-white">
+            অনুশীলন বা পরীক্ষা সেটআপ
+          </h2>
+          <p className="text-xs text-slate-400">
+            মোট নির্বাচিত প্রশ্ন: <strong className="text-emerald-400 font-extrabold">{toBanglaNumber(totalMatching)}টি</strong>
+          </p>
+        </div>
+
+        {/* 1. Mode Selector */}
+        <div className="bg-slate-900/90 border border-slate-800 p-5 rounded-3xl space-y-3">
+          <label className="text-xs font-extrabold text-slate-300 block">
+            ১. মোড নির্বাচন করুন
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => setSelectedMode('quiz')}
+              className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+                selectedMode === 'quiz'
+                  ? 'bg-cyan-500/10 border-cyan-500 text-white'
+                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2 font-extrabold text-sm text-cyan-400">
+                <HelpCircle className="w-4 h-4" />
+                অনুশীলন মোড
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">
+                প্রতিটি প্রশ্নের সাথে সাথে উত্তর ও বিস্তারিত ব্যাখ্যা দেখা যাবে।
+              </p>
+            </button>
+
+            <button
+              onClick={() => setSelectedMode('exam')}
+              className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+                selectedMode === 'exam'
+                  ? 'bg-emerald-500/10 border-emerald-500 text-white'
+                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2 font-extrabold text-sm text-emerald-400">
+                <Timer className="w-4 h-4" />
+                পরীক্ষা মোড
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">
+                একক কাউন্টডাউন, লকড উত্তর এবং পরীক্ষা শেষে ফলাফল ও ব্যাখ্যা।
+              </p>
+            </button>
           </div>
         </div>
-      )}
 
+        {/* 2. Question Count Selector */}
+        <div className="bg-slate-900/90 border border-slate-800 p-5 rounded-3xl space-y-3">
+          <label className="text-xs font-extrabold text-slate-300 block">
+            ২. প্রশ্নের সংখ্যা নির্ধারণ করুন
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {countOptions.map((opt) => (
+              <button
+                key={String(opt.value)}
+                onClick={() => setSelectedQuestionCount(opt.value)}
+                className={`px-4 py-2.5 rounded-xl text-xs font-extrabold border transition-all cursor-pointer ${
+                  selectedQuestionCount === opt.value
+                    ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-md'
+                    : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 3. Custom Time Setup (NO default time shown!) */}
+        <div className="bg-slate-900/90 border border-slate-800 p-5 rounded-3xl space-y-3">
+          <label className="text-xs font-extrabold text-slate-300 block">
+            ৩. মোট সময় নির্ধারণ করুন
+          </label>
+
+          {selectedMode === 'quiz' ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setPracticeTimeOption('no_limit')}
+                  className={`p-3 rounded-xl border text-xs font-extrabold transition-all cursor-pointer ${
+                    practiceTimeOption === 'no_limit'
+                      ? 'bg-cyan-500/10 border-cyan-500 text-cyan-300'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  সময় ছাড়া অনুশীলন (আনলিমিটেড)
+                </button>
+                <button
+                  onClick={() => setPracticeTimeOption('custom')}
+                  className={`p-3 rounded-xl border text-xs font-extrabold transition-all cursor-pointer ${
+                    practiceTimeOption === 'custom'
+                      ? 'bg-cyan-500/10 border-cyan-500 text-cyan-300'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  মোট সময় নির্ধারণ করুন
+                </button>
+              </div>
+
+              {practiceTimeOption === 'custom' && (
+                <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 p-3 rounded-2xl">
+                  <Clock className="w-4 h-4 text-cyan-400 shrink-0" />
+                  <input
+                    type="number"
+                    min="1"
+                    max="180"
+                    value={customTimeMinutes}
+                    onChange={(e) => setCustomTimeMinutes(e.target.value)}
+                    placeholder="মিনিট লিখুন (যেমন: ২০)"
+                    className="bg-transparent text-white text-xs font-bold w-full focus:outline-none placeholder:text-slate-600"
+                  />
+                  <span className="text-xs text-slate-400 font-bold shrink-0">মিনিট</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-[11px] text-amber-300/90 font-medium">
+                * পরীক্ষা মোডে সম্পূর্ণ পরীক্ষার জন্য একটি সামগ্রিক কাউন্টডাউন টাইমার নির্ধারিত হবে।
+              </p>
+              <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 p-3.5 rounded-2xl focus-within:border-emerald-500/60 transition-colors">
+                <Clock className="w-4 h-4 text-emerald-400 shrink-0" />
+                <input
+                  type="number"
+                  min="1"
+                  max="180"
+                  value={customTimeMinutes}
+                  onChange={(e) => setCustomTimeMinutes(e.target.value)}
+                  placeholder="সম্পূর্ণ পরীক্ষার মোট সময় লিখুন (মিনিট)"
+                  className="bg-transparent text-white text-xs font-bold w-full focus:outline-none placeholder:text-slate-600"
+                />
+                <span className="text-xs text-slate-400 font-bold shrink-0">মিনিট</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {validationError && (
+          <div className="bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-bold p-3.5 rounded-2xl flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{validationError}</span>
+          </div>
+        )}
+
+        {/* Action Bar */}
+        <div className="flex items-center justify-between pt-2">
+          <button
+            onClick={() => setCurrentStep('topic')}
+            className="text-xs font-bold text-slate-400 hover:text-white bg-slate-900 border border-slate-800 px-4 py-2.5 rounded-xl cursor-pointer"
+          >
+            পূর্ববর্তী
+          </button>
+          <button
+            onClick={handleStartExamOrPractice}
+            disabled={totalMatching === 0}
+            className={`font-extrabold text-xs px-8 py-3.5 rounded-2xl transition-all shadow-xl flex items-center gap-2 cursor-pointer ${
+              selectedMode === 'exam'
+                ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/20'
+                : 'bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-cyan-500/20'
+            }`}
+          >
+            <Play className="w-4 h-4 fill-current" />
+            <span>{selectedMode === 'exam' ? 'পরীক্ষা শুরু করুন' : 'অনুশীলন শুরু করুন'}</span>
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 sm:p-6 lg:p-8">
+      {/* Header Breadcrumb */}
+      <div className="max-w-4xl mx-auto mb-6 flex items-center justify-between">
+        <button
+          onClick={onBack}
+          className="text-xs font-extrabold text-slate-400 hover:text-white bg-slate-900/80 border border-slate-800 hover:border-slate-700 px-3.5 py-2 rounded-xl flex items-center gap-2 transition-colors cursor-pointer"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>মেডিকেল ড্যাশবোর্ড</span>
+        </button>
+
+        {loadingFirestore && (
+          <span className="text-[10px] text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 rounded-full font-bold">
+            প্রশ্ন সিঙ্ক হচ্ছে...
+          </span>
+        )}
+      </div>
+
+      {/* Main Content Router */}
+      <main className="max-w-4xl mx-auto">
+        {currentStep === 'subject' && renderSubjectStep()}
+        {currentStep === 'paper' && renderPaperStep()}
+        {currentStep === 'chapter' && renderChapterStep()}
+        {currentStep === 'teacher_set' && renderTeacherSetStep()}
+        {currentStep === 'topic' && renderTopicStep()}
+        {currentStep === 'setup' && renderSetupStep()}
+      </main>
     </div>
   );
 }

@@ -13,12 +13,16 @@ import {
 import { MedicalPastQuestionSet } from '../../types/medical';
 import { phy1Chap4PastQuestions } from '../../data/questions_phy1_chap4_newtonian';
 import { phy1Chap6PastQuestions } from '../../data/questions_phy1_chap6_gravity';
+import { medBio1Chap8TissuePastQuestions } from '../../data/questions_med_bio1_c8_tissue';
 
 interface MedicalPastQuestionsProps {
   onBack: () => void;
   pastQuestionSets?: MedicalPastQuestionSet[];
+  initialActiveSet?: MedicalPastQuestionSet | null;
+  initialTimeMinutes?: number;
+  initialMode?: 'exam' | 'practice';
   onStartPastQuestionQuiz?: (set: MedicalPastQuestionSet, timeMinutes?: number, mode?: 'exam' | 'practice') => void;
-  onStartCustomTest?: (questions: any[], title: string, mode?: 'exam' | 'practice', timeMinutes?: number) => void;
+  onStartCustomTest?: (questions: any[], title: string, mode?: 'exam' | 'practice', timeMinutes?: number, meta?: any) => void;
 }
 
 type FilterSubject = 'all' | 'physics' | 'chemistry' | 'biology' | 'english' | 'general_knowledge';
@@ -26,19 +30,47 @@ type FilterSubject = 'all' | 'physics' | 'chemistry' | 'biology' | 'english' | '
 export default function MedicalPastQuestions({
   onBack,
   pastQuestionSets = [],
+  initialActiveSet = null,
+  initialTimeMinutes,
+  initialMode,
   onStartPastQuestionQuiz,
   onStartCustomTest
 }: MedicalPastQuestionsProps) {
   const [selectedSubject, setSelectedSubject] = useState<FilterSubject>('all');
   
   // Modal state for time customization
-  const [activeSetForConfig, setActiveSetForConfig] = useState<MedicalPastQuestionSet | null>(null);
-  const [examTimeMinutes, setExamTimeMinutes] = useState<number>(15);
-  const [customTimeInput, setCustomTimeInput] = useState<string>('15');
-  const [quizMode, setQuizMode] = useState<'exam' | 'practice'>('exam');
+  const [activeSetForConfig, setActiveSetForConfig] = useState<MedicalPastQuestionSet | null>(initialActiveSet);
+  const [examTimeMinutes, setExamTimeMinutes] = useState<number>(initialTimeMinutes || 15);
+  const [customTimeInput, setCustomTimeInput] = useState<string>(String(initialTimeMinutes || 15));
+  const [quizMode, setQuizMode] = useState<'exam' | 'practice'>(initialMode || 'exam');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Built-in verified question sets for Physics Chap 4 & 6
+  React.useEffect(() => {
+    if (initialActiveSet) {
+      setActiveSetForConfig(initialActiveSet);
+      if (initialTimeMinutes) {
+        setExamTimeMinutes(initialTimeMinutes);
+        setCustomTimeInput(String(initialTimeMinutes));
+      }
+      if (initialMode) {
+        setQuizMode(initialMode);
+      }
+    }
+  }, [initialActiveSet, initialTimeMinutes, initialMode]);
+
+  // Built-in verified question sets
   const defaultBuiltInSets: MedicalPastQuestionSet[] = [
+    {
+      id: 'bio1_chap8_past_set',
+      title: 'জীববিজ্ঞান ১ম পত্র: ৮ম অধ্যায় - টিস্যু ও টিস্যুতন্ত্র',
+      subject: 'biology',
+      year: '২০০০-২০২৬',
+      sourceTitle: 'মেডিকেল ও ডেন্টাল ভর্তি পরীক্ষা (মে.ভ.প. / ডে.ভ.প.)',
+      sourceStatus: 'verified',
+      isPublished: true,
+      questions: medBio1Chap8TissuePastQuestions as any,
+      questionIds: medBio1Chap8TissuePastQuestions.map(q => q.id)
+    },
     {
       id: 'phy1_chap4_past_set',
       title: 'পদার্থবিজ্ঞান ১ম পত্র: ৪র্থ অধ্যায় - নিউটনিয়ান বলবিদ্যা',
@@ -87,6 +119,7 @@ export default function MedicalPastQuestions({
 
   const handleOpenConfigModal = (set: MedicalPastQuestionSet) => {
     setActiveSetForConfig(set);
+    setErrorMessage(null);
     const totalQ = set.questions?.length || set.questionIds?.length || 20;
     const defaultTime = Math.max(5, Math.ceil(totalQ * 0.75));
     setExamTimeMinutes(defaultTime);
@@ -111,17 +144,32 @@ export default function MedicalPastQuestions({
     if (!activeSetForConfig) return;
     const questions = activeSetForConfig.questions || [];
 
-    if (onStartCustomTest && questions.length > 0) {
+    if (!questions || questions.length === 0) {
+      setErrorMessage('এই প্রশ্ন সেটে কোনো প্রকাশিত প্রশ্ন পাওয়া যায়নি।');
+      return;
+    }
+
+    setErrorMessage(null);
+    const finalMinutes = examTimeMinutes > 0 ? examTimeMinutes : Math.max(5, Math.ceil(questions.length * 0.75));
+
+    if (onStartPastQuestionQuiz) {
+      onStartPastQuestionQuiz(activeSetForConfig, finalMinutes, quizMode);
+    } else if (onStartCustomTest) {
       onStartCustomTest(
         questions,
         activeSetForConfig.title,
         quizMode,
-        examTimeMinutes
+        finalMinutes,
+        {
+          collectionId: activeSetForConfig.id,
+          collectionTitle: activeSetForConfig.title,
+          subject: activeSetForConfig.subject,
+          route: 'medical',
+          feature: 'past_questions',
+          rawSet: activeSetForConfig
+        }
       );
-    } else if (onStartPastQuestionQuiz) {
-      onStartPastQuestionQuiz(activeSetForConfig, examTimeMinutes, quizMode);
     }
-    setActiveSetForConfig(null);
   };
 
   return (
@@ -347,6 +395,14 @@ export default function MedicalPastQuestions({
                 </button>
               </div>
             </div>
+
+            {/* ERROR MESSAGE IF ANY */}
+            {errorMessage && (
+              <div className="bg-rose-500/10 border border-rose-500/20 text-rose-300 px-4 py-3 rounded-2xl text-xs font-semibold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
 
             {/* ACTION BUTTON */}
             <div className="pt-2">

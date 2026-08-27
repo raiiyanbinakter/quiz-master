@@ -12,11 +12,24 @@ interface ChapterListProps {
 
 export default function ChapterList({ subject, userData, onBack, onSelectChapter }: ChapterListProps) {
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
+  const [selectedSectionId, setSelectedSectionId] = useState<string | 'all'>(
+    subject.hasSections && subject.sections && subject.sections.length > 0 ? subject.sections[0].id : 'all'
+  );
 
   const handleSelect = (index: number) => {
     // Academic open access rule: Do not hard block students from viewing or practicing normal academic chapters
     onSelectChapter(index);
   };
+
+  const sections = subject.sections || [];
+  const activeSection = sections.find(s => s.id === selectedSectionId);
+
+  // Filter chapters if section is selected
+  const displayedChapters = subject.chapters.map((title, index) => ({ title, originalIndex: index })).filter(item => {
+    if (!subject.hasSections || selectedSectionId === 'all' || !activeSection) return true;
+    const chNum = item.originalIndex + 1;
+    return chNum >= activeSection.chapterRange.start && chNum <= activeSection.chapterRange.end;
+  });
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
@@ -70,17 +83,50 @@ export default function ChapterList({ subject, userData, onBack, onSelectChapter
         </div>
       </div>
 
+      {/* Section Selector if subject has sections (e.g. Bangla 1st Paper) */}
+      {subject.hasSections && subject.sections && subject.sections.length > 0 && (
+        <div className="flex items-center gap-2 overflow-x-auto pb-1">
+          {subject.sections.map((sec) => {
+            const isSecSelected = selectedSectionId === sec.id;
+            return (
+              <button
+                key={sec.id}
+                onClick={() => setSelectedSectionId(sec.id)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer border ${
+                  isSecSelected
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm'
+                    : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-white hover:border-slate-700'
+                }`}
+              >
+                {sec.name} ({sec.chapterRange.start < 10 ? `০${sec.chapterRange.start}` : sec.chapterRange.start}–{sec.chapterRange.end < 10 ? `০${sec.chapterRange.end}` : sec.chapterRange.end})
+              </button>
+            );
+          })}
+          <button
+            onClick={() => setSelectedSectionId('all')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer border ${
+              selectedSectionId === 'all'
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm'
+                : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:text-white hover:border-slate-700'
+            }`}
+          >
+            সবগুলো ({subject.chapters.length})
+          </button>
+        </div>
+      )}
+
       {viewMode === 'map' ? (
         <ProgressionMap 
           subject={subject}
           userData={userData}
+          selectedSectionId={selectedSectionId}
           onSelectChapter={onSelectChapter}
           onBack={onBack}
         />
       ) : (
         /* Chapters List */
         <div className="space-y-3">
-          {subject.chapters.map((chapterTitle, index) => {
+          {displayedChapters.map(({ title: chapterTitle, originalIndex: index }) => {
             const statusInfo = getChapterLearningStatus(subject.id, index, userData);
 
             return (

@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Trophy, CheckCircle2, XCircle, Clock, RotateCcw, Home, Info, ArrowLeft, Loader2, ChevronDown, Sparkles, MessageCircle, HeartHandshake, Flame, BookOpen, Layers, Calendar, Map } from 'lucide-react';
+import { Trophy, CheckCircle2, XCircle, Clock, RotateCcw, Home, Info, ArrowLeft, Loader2, ChevronDown, Sparkles, MessageCircle, HeartHandshake, Flame, BookOpen, Layers, Calendar, Map, ZoomIn, X, ImageIcon } from 'lucide-react';
 import { collection, addDoc, serverTimestamp, writeBatch, doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { QuizSummary } from '../types';
 import { uiCopy } from '../content/uiCopy';
 import { addRevisionFromQuizResult } from '../utils/studySessionUtils';
 import { MathText } from './MathText';
+import { resolveQuestionMediaState, cleanStudentFacingText, fetchQuestionMediaOverrides } from '../lib/questionMediaOverrides';
 
 interface ResultProps {
   summary: QuizSummary;
@@ -49,7 +50,17 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
 
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [expandedExplanations, setExpandedExplanations] = useState<Record<number, boolean>>({});
+  const [zoomImage, setZoomImage] = useState<string | null>(null);
+  const [overridesMap, setOverridesMap] = useState<Record<string, any>>({});
   const resultsCardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetchQuestionMediaOverrides()
+      .then(data => {
+        if (data) setOverridesMap(data);
+      })
+      .catch(err => console.warn('Could not load overrides in Result', err));
+  }, []);
 
   useEffect(() => {
     if (resultsCardRef.current && window.renderMathInElement) {
@@ -414,69 +425,194 @@ export default function Result({ summary, user, userData, onRetry, onGoHome, onB
         </div>
 
         <div ref={resultsCardRef} className="space-y-6">
-          {summary.results.map((result, index) => (
-            <div key={index} className="bg-slate-800 rounded-2xl p-6 border border-slate-700 animate-in fade-in duration-200">
-              <div className="flex gap-4 mb-4">
-                <div className="w-8 h-8 shrink-0 bg-slate-700 rounded-full flex items-center justify-center text-slate-300 font-bold">
-                  {index + 1}
-                </div>
-                <h4 className="text-lg font-medium text-white leading-relaxed">
-                  <MathText text={result.questionText} />
-                </h4>
-              </div>
+          {summary.results.map((result, index) => {
+            const mediaState = resolveQuestionMediaState(result, overridesMap);
+            const cleanStem = cleanStudentFacingText(mediaState.cleanStem || result.questionText);
+            const cleanExp = cleanStudentFacingText(mediaState.cleanExplanation || result.explanation);
 
-              <div className="pl-12 space-y-3 mb-4">
-                {result.options.map((option, optIdx) => {
-                  let optClass = "text-slate-400";
-                  let Icon = null;
+            return (
+              <div key={index} className="bg-slate-800 rounded-2xl p-6 border border-slate-700 animate-in fade-in duration-200">
+                <div className="flex gap-4 mb-4">
+                  <div className="w-8 h-8 shrink-0 bg-slate-700 rounded-full flex items-center justify-center text-slate-300 font-bold">
+                    {index + 1}
+                  </div>
+                  <div className="flex-1 space-y-3">
+                    <h4 className="text-lg font-medium text-white leading-relaxed">
+                      <MathText text={cleanStem} />
+                    </h4>
 
-                  if (option === result.correctAnswer) {
-                    optClass = "text-emerald-400 font-medium";
-                    Icon = CheckCircle2;
-                  } else if (option === result.selectedOption) {
-                    optClass = "text-rose-400 font-medium";
-                    Icon = XCircle;
-                  }
-
-                  return (
-                    <div key={optIdx} className={`flex items-center gap-2 ${optClass}`}>
-                      <div className={`w-2 h-2 rounded-full ${option === result.correctAnswer ? 'bg-emerald-400' : option === result.selectedOption ? 'bg-rose-400' : 'bg-slate-600'}`}></div>
-                      <span><MathText text={option} /></span>
-                      {Icon && <Icon className="w-4 h-4" />}
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="pl-12">
-                {result.explanation && (
-                  <div className="mt-2">
-                    <button 
-                      onClick={() => toggleExplanation(index)}
-                      className={`flex items-center gap-2 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors border ${!result.isCorrect && !result.isSkipped ? 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20' : 'bg-slate-700/50 text-slate-300 border-slate-600 hover:bg-slate-700'} cursor-pointer`}
-                    >
-                      <Info className="w-4 h-4" />
-                      {!result.isCorrect && !result.isSkipped ? 'View Explanation (Wrong Answer)' : 'View Explanation'}
-                      <ChevronDown className={`w-4 h-4 transition-transform ${expandedExplanations[index] ? 'rotate-180' : ''}`} />
-                    </button>
-                    
-                    {expandedExplanations[index] && (
-                      <div className="bg-slate-900/80 rounded-xl p-4 border border-slate-700/50 mt-3 animate-in slide-in-from-top-2 duration-200">
-                        <div className="flex items-start gap-2">
-                          <p className="text-sm text-slate-300 leading-relaxed">
-                            <span className="font-semibold text-blue-400">{uiCopy.result.explanation}: </span>
-                            <MathText text={result.explanation} />
-                          </p>
+                    {/* Question Stem Image if present */}
+                    {mediaState.imageUrl && (
+                      <div className="bg-slate-900/90 border border-slate-700/80 rounded-xl p-3 max-w-sm space-y-2">
+                        <div className="relative rounded-lg overflow-hidden bg-slate-950/80 flex items-center justify-center max-h-56">
+                          <img
+                            src={mediaState.imageUrl}
+                            alt={mediaState.altText || 'Question diagram'}
+                            className="w-full h-auto max-h-52 object-contain rounded"
+                            loading="lazy"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between gap-2 pt-0.5">
+                          <span className="text-[11px] text-slate-400 italic truncate max-w-[200px]">
+                            {mediaState.altText || 'চিত্র / ডায়াগ্রাম'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (mediaState.imageUrl) setZoomImage(mediaState.imageUrl);
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-semibold rounded-lg border border-slate-700 transition-colors cursor-pointer shrink-0"
+                          >
+                            <ZoomIn className="w-3.5 h-3.5" />
+                            <span>চিত্র বড় করুন</span>
+                          </button>
                         </div>
                       </div>
                     )}
                   </div>
-                )}
+                </div>
+
+                {/* Options List */}
+                <div className="pl-12 space-y-3 mb-4">
+                  {result.options.map((option, optIdx) => {
+                    const optMedia = mediaState.getOptionMedia(optIdx);
+                    const optText = mediaState.cleanOptionText(option);
+                    const hasOnlyImage = Boolean(optMedia?.url) && (!optText || optText.trim() === '');
+
+                    let optClass = "text-slate-400";
+                    let Icon = null;
+
+                    if (option === result.correctAnswer) {
+                      optClass = "text-emerald-400 font-medium";
+                      Icon = CheckCircle2;
+                    } else if (option === result.selectedOption) {
+                      optClass = "text-rose-400 font-medium";
+                      Icon = XCircle;
+                    }
+
+                    return (
+                      <div key={optIdx} className={`flex items-start gap-2.5 ${optClass}`}>
+                        <div className={`w-2.5 h-2.5 rounded-full shrink-0 mt-1.5 ${option === result.correctAnswer ? 'bg-emerald-400' : option === result.selectedOption ? 'bg-rose-400' : 'bg-slate-600'}`}></div>
+                        <div className="flex-1 space-y-1.5">
+                          {optMedia?.url && (
+                            <div className="rounded-lg overflow-hidden bg-slate-950/80 border border-slate-700/60 p-1.5 max-w-xs relative group inline-block">
+                              <img
+                                src={optMedia.url}
+                                alt={optMedia.altText || `Option diagram`}
+                                className="w-full h-auto max-h-32 object-contain rounded"
+                                loading="lazy"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (optMedia.url) setZoomImage(optMedia.url);
+                                }}
+                                className="absolute top-2 right-2 p-1 bg-slate-900/90 hover:bg-slate-800 text-cyan-300 rounded opacity-0 group-hover:opacity-100 transition-opacity border border-slate-700"
+                                title="বড় করে দেখুন"
+                              >
+                                <ZoomIn className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+                          {!hasOnlyImage && optText && (
+                            <div><MathText text={optText} /></div>
+                          )}
+                        </div>
+                        {Icon && <Icon className="w-4 h-4 shrink-0 mt-1" />}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Explanation Section */}
+                <div className="pl-12">
+                  {(cleanExp || mediaState.explanationMedia?.url) && (
+                    <div className="mt-2">
+                      <button 
+                        onClick={() => toggleExplanation(index)}
+                        className={`flex items-center gap-2 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors border ${!result.isCorrect && !result.isSkipped ? 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20' : 'bg-slate-700/50 text-slate-300 border-slate-600 hover:bg-slate-700'} cursor-pointer`}
+                      >
+                        <Info className="w-4 h-4" />
+                        {!result.isCorrect && !result.isSkipped ? 'View Explanation (Wrong Answer)' : 'View Explanation'}
+                        <ChevronDown className={`w-4 h-4 transition-transform ${expandedExplanations[index] ? 'rotate-180' : ''}`} />
+                      </button>
+                      
+                      {expandedExplanations[index] && (
+                        <div className="bg-slate-900/80 rounded-xl p-4 border border-slate-700/50 mt-3 animate-in slide-in-from-top-2 duration-200 space-y-3">
+                          {cleanExp && (
+                            <div className="flex items-start gap-2">
+                              <p className="text-sm text-slate-300 leading-relaxed">
+                                <span className="font-semibold text-blue-400">{uiCopy.result.explanation}: </span>
+                                <MathText text={cleanExp} />
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Explanation Image */}
+                          {mediaState.explanationMedia?.url && (
+                            <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 max-w-sm space-y-2">
+                              <div className="relative rounded-lg overflow-hidden bg-slate-900 flex items-center justify-center max-h-48">
+                                <img
+                                  src={mediaState.explanationMedia.url}
+                                  alt={mediaState.explanationMedia.altText || 'ব্যাখ্যার চিত্র'}
+                                  className="w-full h-auto max-h-44 object-contain rounded"
+                                  loading="lazy"
+                                />
+                              </div>
+                              <div className="flex items-center justify-between gap-2 pt-0.5">
+                                <span className="text-[10px] text-slate-400 italic truncate">
+                                  {mediaState.explanationMedia.altText || 'ব্যাখ্যার চিত্র'}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (mediaState.explanationMedia?.url) setZoomImage(mediaState.explanationMedia.url);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-semibold rounded border border-slate-700 transition-colors cursor-pointer shrink-0"
+                                >
+                                  <ZoomIn className="w-3 h-3" />
+                                  <span>বড় করে দেখুন</span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
+      {/* Full-screen Image Zoom Modal */}
+      {zoomImage && (
+        <div
+          className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-4"
+          onClick={() => setZoomImage(null)}
+        >
+          <div
+            className="relative max-w-3xl max-h-[90vh] bg-slate-900 border border-slate-700 rounded-2xl p-4 overflow-hidden shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setZoomImage(null)}
+              className="absolute top-3 right-3 p-1.5 rounded-full bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-600 transition-colors cursor-pointer z-10"
+              title="বন্ধ করুন"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="flex items-center justify-center max-h-[80vh] overflow-auto">
+              <img
+                src={zoomImage}
+                alt="Enlarged preview"
+                className="max-h-[80vh] w-auto object-contain rounded-lg"
+              />
+            </div>
+          </div>
+        </div>
+      )}
       {/* Level Unlock Celebration Modal */}
       {showUnlockModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-300">

@@ -1,5 +1,5 @@
 import { collection, getDocs, doc, setDoc, deleteDoc, query, where, orderBy, getDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
 import { RoutineTemplate, RoutineEvent, StudentRoutineProfile } from '../types/routine';
 
 const LOCAL_STORAGE_TEMPLATES = 'admin_routine_templates';
@@ -176,21 +176,61 @@ export async function saveAdminRoutineTemplate(template: RoutineTemplate): Promi
 }
 
 // Delete Template
-export async function deleteAdminRoutineTemplate(templateId: string): Promise<void> {
-  try {
-    const existing = await fetchAdminRoutineTemplates();
-    const filtered = existing.filter(t => t.id !== templateId);
-    localStorage.setItem(LOCAL_STORAGE_TEMPLATES, JSON.stringify(filtered));
-  } catch (e) {
-    console.warn('LocalStorage delete error:', e);
+export async function deleteAdminRoutineTemplate(
+  templateId: string,
+  currentUser?: any,
+  isUserAdmin?: boolean
+): Promise<void> {
+  const user = currentUser || auth?.currentUser;
+  if (!user) {
+    throw new Error('NOT_LOGGED_IN');
+  }
+
+  if (isUserAdmin === false) {
+    throw new Error('NOT_ADMIN');
   }
 
   if (db) {
+    const docRef = doc(db, 'routineTemplates', templateId);
+
+    // Optional check: verify if document exists or can be accessed
     try {
-      await deleteDoc(doc(db, 'routineTemplates', templateId));
-    } catch (err) {
-      console.warn('Firestore delete routineTemplate failed:', err);
+      const docSnap = await getDoc(docRef);
+      if (!docSnap.exists()) {
+        const existing = await fetchAdminRoutineTemplates();
+        const found = existing.some(t => t.id === templateId);
+        if (!found) {
+          throw new Error('NOT_FOUND');
+        }
+      }
+    } catch (err: any) {
+      if (err?.message === 'NOT_FOUND') {
+        throw err;
+      }
+      if (err?.code === 'permission-denied' || err?.message?.includes('permission') || err?.message?.includes('Missing or insufficient permissions')) {
+        console.error('Firestore check permission error:', err);
+        throw err;
+      }
     }
+
+    try {
+      await deleteDoc(docRef);
+    } catch (err: any) {
+      console.error('Firestore delete routineTemplate failed:', err);
+      throw err;
+    }
+  }
+
+  // Synchronize localStorage
+  try {
+    const stored = localStorage.getItem(LOCAL_STORAGE_TEMPLATES);
+    if (stored) {
+      const existing: RoutineTemplate[] = JSON.parse(stored);
+      const filtered = existing.filter(t => t.id !== templateId);
+      localStorage.setItem(LOCAL_STORAGE_TEMPLATES, JSON.stringify(filtered));
+    }
+  } catch (e) {
+    console.warn('LocalStorage delete error:', e);
   }
 }
 

@@ -23,6 +23,7 @@ import { syllabus as staticSyllabus } from './data/syllabus';
 import { sampleChapterData } from './data/questions';
 import { bio1Chap1Data } from './data/questions_bio1_chap1';
 import { bio1Chap7Data } from './data/questions_bio1_chap7';
+import { bio1Chap8Data } from './data/questions_bio1_chap8';
 import { phy1Chap2Data } from './data/questions_phy1_chap2';
 import { phy1Chap4RawQuestions } from './data/questions_phy1_chap4_newtonian';
 import { phy1Chap6RawQuestions } from './data/questions_phy1_chap6_gravity';
@@ -46,7 +47,8 @@ import { dcuChemQualitativeData } from './data/questions_dcu_chem_qualitative';
 import { dcuChemPeriodicPropertiesData } from './data/questions_dcu_chem_periodic_properties';
 import { dcuChemEnvironmentalData } from './data/questions_dcu_chem_environmental';
 import { math1Chap9Data } from './data/questions_math1_chap9';
-import { Subject, QuizResult, QuizSummary } from './types';
+import { ictChap3Data } from './data/questions_ict_chap3';
+import { Subject, Question, QuizResult, QuizSummary } from './types';
 import { ADMIN_EMAIL } from './constants';
 import RouteSetupModal from './components/RouteSetupModal';
 import { StudentGameProfile, LearningRoute } from './types/gamification';
@@ -56,13 +58,28 @@ import { recordTopicMasteryInFirestore } from './utils/topicMastery';
 import MedicalDashboard from './components/medical/MedicalDashboard';
 import MedicalQuestionBank from './components/medical/MedicalQuestionBank';
 import MedicalPastQuestions from './components/medical/MedicalPastQuestions';
+import { MedicalPastQuestionSet } from './types/medical';
 import MedicalSubjectTests from './components/medical/MedicalSubjectTests';
 import MedicalMockTests from './components/medical/MedicalMockTests';
 import MedicalModelTests from './components/medical/MedicalModelTests';
+import MedicalSubjectPreparation from './components/medical/MedicalSubjectPreparation';
+import { MedicalSubject } from './types/questionBank';
+import VarsityDashboard from './components/varsity/VarsityDashboard';
+import VarsityUnitPractice from './components/varsity/VarsityUnitPractice';
+import VarsityPastQuestions from './components/varsity/VarsityPastQuestions';
+import VarsitySubjectPreparation from './components/varsity/VarsitySubjectPreparation';
+import VarsityModelTests from './components/varsity/VarsityModelTests';
+import { VarsitySubjectKey } from './lib/varsityPracticeBank';
+import BoardChapterList from './components/board/BoardChapterList';
+import BoardChapterPage from './components/board/BoardChapterPage';
+import { BoardQuestion } from './types/boardPrep';
+import { INITIAL_BOARD_QUESTIONS, fetchFirestoreBoardQuestions } from './data/boardPrepData';
 
 type ViewState = 'home' | 'chapters' | 'topics' | 'quiz' | 'result' | 'leaderboard' | 'login' | 'signup' | 'profile' | 'admin' | 'feedback' | 'doubt-arena' | 'shop' | 'routine'
   | 'category_academic' | 'category_board' | 'category_medical' | 'category_varsity'
-  | 'medical-dashboard' | 'medical-question-bank' | 'medical-past-questions' | 'medical-subject-tests' | 'medical-mock-tests' | 'medical-model-tests';
+  | 'medical-dashboard' | 'medical-question-bank' | 'medical-past-questions' | 'medical-subject-tests' | 'medical-mock-tests' | 'medical-model-tests' | 'medical-subject-preparation'
+  | 'varsity-dashboard' | 'varsity-unit-practice' | 'varsity-past-questions' | 'varsity-subject-preparation' | 'varsity-model-test' | 'varsity-model-tests' | 'varsity-question-bank'
+  | 'board_chapters' | 'board_chapter_page';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewState>(() => {
@@ -94,6 +111,23 @@ export default function App() {
   const [syllabus, setSyllabus] = useState<Subject[]>(staticSyllabus);
   const [dynamicQuizzes, setDynamicQuizzes] = useState<any[]>([]);
   const [questionOverrides, setQuestionOverrides] = useState<Record<string, any>>({});
+  const [boardQuestions, setBoardQuestions] = useState<BoardQuestion[]>(INITIAL_BOARD_QUESTIONS);
+  const [selectedBoardYear, setSelectedBoardYear] = useState<number | null>(null);
+
+  // Past Questions & Medical Feature Routing State
+  const [selectedRoute, setSelectedRoute] = useState<'medical' | 'varsity' | 'board' | 'academic' | null>('medical');
+  const [selectedFeature, setSelectedFeature] = useState<'past_questions' | 'subject_tests' | 'mock_tests' | 'model_tests' | null>(null);
+  const [selectedQuestionCollectionId, setSelectedQuestionCollectionId] = useState<string | null>(null);
+  const [selectedCollectionTitle, setSelectedCollectionTitle] = useState<string>('');
+  const [selectedPaper, setSelectedPaper] = useState<string | null>(null);
+  const [selectedChapterName, setSelectedChapterName] = useState<string | null>(null);
+  const [activePastQuestionSet, setActivePastQuestionSet] = useState<MedicalPastQuestionSet | null>(null);
+  const [pastQuestionModalTime, setPastQuestionModalTime] = useState<number>(15);
+  const [pastQuestionModalMode, setPastQuestionModalMode] = useState<'exam' | 'practice'>('exam');
+  const [medQuestionBankInitialSubject, setMedQuestionBankInitialSubject] = useState<MedicalSubject | undefined>(undefined);
+  const [medQuestionBankInitialPaper, setMedQuestionBankInitialPaper] = useState<'first' | 'second' | 'not_applicable' | undefined>(undefined);
+  const [medQuestionBankInitialChapterName, setMedQuestionBankInitialChapterName] = useState<string | undefined>(undefined);
+  const [varsityInitialSubject, setVarsityInitialSubject] = useState<VarsitySubjectKey | undefined>(undefined);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -111,6 +145,20 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
+        const cachedUserStr = localStorage.getItem(`qm_cached_user_${currentUser.uid}`);
+        let parsedCachedUser: any = null;
+        if (cachedUserStr) {
+          try {
+            parsedCachedUser = JSON.parse(cachedUserStr);
+          } catch (err) {
+            console.warn("Failed to parse cached user data", err);
+          }
+        }
+
+        const isConfiguredAdmin = currentUser.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+        const defaultRole = isConfiguredAdmin ? 'admin' : 'user';
+        const today = new Date().toISOString().split('T')[0];
+
         try {
           const userDocRef = doc(db, 'users', currentUser.uid);
           const userDoc = await getDoc(userDocRef);
@@ -127,7 +175,6 @@ export default function App() {
             if (data.purchasedItems === undefined) { data.purchasedItems = ["avatar_default"]; needsUpdate = true; }
             if (data.equippedAvatar === undefined) { data.equippedAvatar = "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix"; needsUpdate = true; }
             if (data.equippedBorder === undefined) { data.equippedBorder = "none"; needsUpdate = true; }
-            const today = new Date().toISOString().split('T')[0];
             if (data.lastActiveDate === undefined) { data.lastActiveDate = today; needsUpdate = true; }
             if (data.lastEnergyUpdate === undefined) { data.lastEnergyUpdate = Date.now(); needsUpdate = true; }
             
@@ -195,27 +242,37 @@ export default function App() {
               }
             } else if (data.energy >= 5 || data.isPro) {
                  data.lastEnergyUpdate = Date.now();
-                 // If needsUpdate is already false, we don't force a write just for lastEnergyUpdate when energy is full
                  if (data.energy > 5) { data.energy = 5; needsUpdate = true; }
             }
 
-            if (needsUpdate) {
-              await setDoc(userDocRef, { 
-                coins: data.coins, 
-                gems: data.gems, 
-                energy: data.energy, 
-                isPro: data.isPro,
-                currentStreak: data.currentStreak,
-                reputation: data.reputation,
-                lastActiveDate: data.lastActiveDate,
-                lastEnergyUpdate: data.lastEnergyUpdate,
-                purchasedItems: data.purchasedItems,
-                equippedAvatar: data.equippedAvatar,
-                equippedBorder: data.equippedBorder,
-                dailyMissions: data.dailyMissions,
-                lastMissionsResetDate: data.lastMissionsResetDate
-              }, { merge: true });
+            if (isConfiguredAdmin && data.role !== 'admin') {
+              data.role = 'admin';
+              needsUpdate = true;
             }
+
+            if (needsUpdate) {
+              try {
+                await setDoc(userDocRef, { 
+                  role: data.role || 'user',
+                  coins: data.coins, 
+                  gems: data.gems, 
+                  energy: data.energy, 
+                  isPro: data.isPro,
+                  currentStreak: data.currentStreak,
+                  reputation: data.reputation,
+                  lastActiveDate: data.lastActiveDate,
+                  lastEnergyUpdate: data.lastEnergyUpdate,
+                  purchasedItems: data.purchasedItems,
+                  equippedAvatar: data.equippedAvatar,
+                  equippedBorder: data.equippedBorder,
+                  dailyMissions: data.dailyMissions,
+                  lastMissionsResetDate: data.lastMissionsResetDate
+                }, { merge: true });
+              } catch (writeErr) {
+                console.warn("Could not sync user updates to Firestore (offline):", writeErr);
+              }
+            }
+            localStorage.setItem(`qm_cached_user_${currentUser.uid}`, JSON.stringify(data));
             setUserData(data);
 
             // Fetch Gamification Profile
@@ -224,6 +281,7 @@ export default function App() {
               const gameProfileSnap = await getDoc(gameProfileRef);
               if (gameProfileSnap.exists()) {
                 const gpData = gameProfileSnap.data() as StudentGameProfile;
+                localStorage.setItem(`qm_cached_game_profile_${currentUser.uid}`, JSON.stringify(gpData));
                 setGameProfile(gpData);
                 if (!gpData.selectedRoute) {
                   setShowRouteModal(true);
@@ -233,12 +291,20 @@ export default function App() {
                 setShowRouteModal(true);
               }
             } catch (gpErr) {
-              console.warn("Could not load game profile:", gpErr);
+              console.warn("Could not load game profile from Firestore, checking cache:", gpErr);
+              const cachedGPStr = localStorage.getItem(`qm_cached_game_profile_${currentUser.uid}`);
+              if (cachedGPStr) {
+                try {
+                  const cachedGP = JSON.parse(cachedGPStr);
+                  setGameProfile(cachedGP);
+                } catch {
+                  setGameProfile(null);
+                }
+              } else {
+                setGameProfile(null);
+              }
             }
           } else {
-            // Check if admin email and set role accordingly, fixing legacy missing users
-            const defaultRole = currentUser.email === ADMIN_EMAIL ? 'admin' : 'user';
-            const today = new Date().toISOString().split('T')[0];
             const newUserData = {
               uid: currentUser.uid,
               email: currentUser.email,
@@ -290,12 +356,82 @@ export default function App() {
               lastMissionsResetDate: today,
               createdAt: serverTimestamp()
             };
-            await setDoc(userDocRef, newUserData);
+            try {
+              await setDoc(userDocRef, newUserData);
+            } catch (writeErr) {
+              console.warn("Could not create user document in Firestore (offline):", writeErr);
+            }
+            localStorage.setItem(`qm_cached_user_${currentUser.uid}`, JSON.stringify(newUserData));
             setUserData(newUserData);
           }
         } catch (e) {
-          console.error("Error fetching or creating user data", e);
-          setUserData({ role: 'user' });
+          console.warn("Offline or network issue accessing user data in Firestore:", e);
+          if (parsedCachedUser) {
+            setUserData(parsedCachedUser);
+          } else {
+            const fallbackUserData = {
+              uid: currentUser.uid,
+              email: currentUser.email,
+              name: currentUser.displayName || 'Learner',
+              role: defaultRole,
+              coins: 100,
+              gems: 0,
+              energy: 5,
+              reputation: 0,
+              isPro: false,
+              currentStreak: 0,
+              lastActiveDate: today,
+              lastEnergyUpdate: Date.now(),
+              purchasedItems: ["avatar_default"],
+              equippedAvatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix",
+              equippedBorder: "none",
+              dailyMissions: [
+                {
+                  id: 'mcq_correct',
+                  title: 'Correct 5 MCQs',
+                  banglaTitle: '৫টি প্রশ্নের সঠিক উত্তর দিন',
+                  target: 5,
+                  current: 0,
+                  reward: 30,
+                  isCompleted: false,
+                  isClaimed: false
+                },
+                {
+                  id: 'upvote_doubt',
+                  title: 'Upvote 2 doubts',
+                  banglaTitle: 'ডাউট এরিনায় ২টি উত্তর আপভোট করুন',
+                  target: 2,
+                  current: 0,
+                  reward: 20,
+                  isCompleted: false,
+                  isClaimed: false
+                },
+                {
+                  id: 'post_doubt',
+                  title: 'Post 1 doubt',
+                  banglaTitle: 'ডাউট এরিনায় ১টি প্রশ্ন পোস্ট করুন',
+                  target: 1,
+                  current: 0,
+                  reward: 15,
+                  isCompleted: false,
+                  isClaimed: false
+                }
+              ],
+              lastMissionsResetDate: today
+            };
+            localStorage.setItem(`qm_cached_user_${currentUser.uid}`, JSON.stringify(fallbackUserData));
+            setUserData(fallbackUserData);
+          }
+
+          // Also attempt local recovery for game profile
+          const cachedGPStr = localStorage.getItem(`qm_cached_game_profile_${currentUser.uid}`);
+          if (cachedGPStr) {
+            try {
+              setGameProfile(JSON.parse(cachedGPStr));
+            } catch {
+              setGameProfile(null);
+            }
+          }
         }
       } else {
         setUserData(null);
@@ -346,9 +482,31 @@ export default function App() {
       }
     };
 
+    const fetchBoardQuestionsData = async () => {
+      try {
+        const firestoreQs = await fetchFirestoreBoardQuestions();
+        if (firestoreQs.length > 0) {
+          const combined = [...firestoreQs];
+          INITIAL_BOARD_QUESTIONS.forEach(initQ => {
+            if (!combined.some(q => q.id === initQ.id)) {
+              combined.push(initQ);
+            }
+          });
+          setBoardQuestions(combined);
+        }
+      } catch (e) {
+        console.warn("Could not load board questions from Firestore:", e);
+      }
+    };
+
     fetchDynamicSubjects();
     fetchOverrides();
+    fetchBoardQuestionsData();
   }, []);
+
+  const isAdminUser = Boolean(
+    user && (user.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase() || userData?.role === 'admin')
+  );
 
   const handleLogout = async () => {
     try {
@@ -360,7 +518,7 @@ export default function App() {
   };
 
   const handleNavigate = (view: ViewState) => {
-    if (view === 'admin' && userData?.role !== 'admin') {
+    if (view === 'admin' && !isAdminUser) {
       return;
     }
     if (view === 'doubt-arena') {
@@ -378,7 +536,11 @@ export default function App() {
     const subject = syllabus.find(s => s?.id === subjectId);
     if (subject) {
       setSelectedSubject(subject);
-      setCurrentView('chapters');
+      if (currentCategory === 'board') {
+        setCurrentView('board_chapters');
+      } else {
+        setCurrentView('chapters');
+      }
     }
   };
 
@@ -391,7 +553,8 @@ export default function App() {
     topic: string | null,
     mode: 'quiz' | 'exam',
     questionCount?: number,
-    timeMinutes?: number
+    timeMinutes?: number,
+    customQuestions?: Question[]
   ) => {
     if (!user) {
       setCurrentView('login');
@@ -433,6 +596,13 @@ export default function App() {
       }
     } else {
       // Professional Mode: Instant start, do NOT deduct energy, do NOT check previous locks
+    }
+
+    if (customQuestions && customQuestions.length > 0) {
+      setCustomExamQuestions(customQuestions);
+      setCustomExamTitle(topic ? `${selectedSubject?.name || 'Academic'} • ${topic}` : (selectedSubject?.name || 'Academic Question Bank'));
+    } else {
+      setCustomExamQuestions(null);
     }
 
     setSelectedTopic(topic);
@@ -480,11 +650,11 @@ export default function App() {
     // Scoring logic: +1 for correct, -0.25 for wrong
     const totalScore = (correctCount * 1) - (wrongCount * 0.25);
 
-    let quizNameStr = selectedSubject?.name || 'Quiz';
-    if (selectedChapterIndex !== null && selectedSubject?.chapters[selectedChapterIndex]) {
+    let quizNameStr = customExamQuestions ? customExamTitle : (selectedSubject?.name || 'Quiz');
+    if (!customExamQuestions && selectedChapterIndex !== null && selectedSubject?.chapters[selectedChapterIndex]) {
        quizNameStr += ` - ${selectedSubject.chapters[selectedChapterIndex]}`;
     }
-    if (selectedTopic) {
+    if (!customExamQuestions && selectedTopic) {
       quizNameStr += ` (${selectedTopic})`;
     }
 
@@ -530,6 +700,37 @@ export default function App() {
           const topicId = `${selectedSubject.id}_${selectedTopic}`;
           await recordTopicMasteryInFirestore(user.uid, selectedSubject.id, topicId, results.length, correctCount, gameProfile?.selectedRoute, selectedChapterIndex ?? undefined);
         }
+
+        // Update Board Prep progress tracking per year per chapter
+        if (currentCategory === 'board' && selectedSubject && selectedChapterIndex !== null && selectedBoardYear !== null) {
+          const yearKey = `${selectedSubject.id}_${selectedChapterIndex}_${selectedBoardYear}`;
+          const pct = results.length > 0 ? (correctCount / results.length) * 100 : 0;
+          const prevProg = userData?.boardPrepProgress?.[yearKey];
+          const updatedProg = {
+            attempts: (prevProg?.attempts || 0) + 1,
+            bestScore: Math.max(prevProg?.bestScore || 0, pct),
+            correctCount,
+            totalQuestions: results.length,
+            status: pct >= 80 ? 'completed' : 'in_progress',
+            lastAttemptAt: new Date().toISOString()
+          };
+
+          const newUserData = {
+            ...userData,
+            boardPrepProgress: {
+              ...(userData?.boardPrepProgress || {}),
+              [yearKey]: updatedProg
+            }
+          };
+          setUserData(newUserData);
+          const userDocRef = doc(db, 'users', user.uid);
+          await setDoc(userDocRef, {
+            boardPrepProgress: {
+              ...(userData?.boardPrepProgress || {}),
+              [yearKey]: updatedProg
+            }
+          }, { merge: true });
+        }
       } catch (gErr) {
         console.warn("Error updating gamification profile on quiz complete:", gErr);
       }
@@ -539,6 +740,60 @@ export default function App() {
   };
 
   const handleRetry = () => {
+    setCurrentView('quiz');
+  };
+
+  const handleStartPastQuestionQuiz = (
+    set: MedicalPastQuestionSet,
+    timeMinutes: number = 15,
+    mode: 'exam' | 'practice' = 'exam'
+  ) => {
+    const questions = set.questions || [];
+    if (!questions || questions.length === 0) {
+      alert("এই প্রশ্ন সেটে কোনো প্রকাশিত প্রশ্ন পাওয়া যায়নি।");
+      return;
+    }
+
+    const validatedTime = mode === 'exam'
+      ? (timeMinutes > 0 ? timeMinutes : Math.max(5, Math.ceil(questions.length * 0.75)))
+      : timeMinutes;
+
+    // Set all required state values
+    setSelectedQuestionCollectionId(set.id);
+    setSelectedCollectionTitle(set.title);
+    setSelectedRoute('medical');
+    setSelectedFeature('past_questions');
+    setActivePastQuestionSet(set);
+    setPastQuestionModalTime(validatedTime);
+    setPastQuestionModalMode(mode);
+
+    // Subject/Paper/Chapter resolution
+    let paperStr: string | null = null;
+    let chapStr: string | null = null;
+    if (set.title.includes('১ম পত্র') || set.title.includes('1st')) paperStr = '1st Paper';
+    if (set.title.includes('২য় পত্র') || set.title.includes('2nd')) paperStr = '2nd Paper';
+    const match = set.title.match(/(\d+|[০-৯]+)\s*(?:তম|ম|ষ্ঠ|র্থ|ম)?\s*অধ্যায়/);
+    if (match) chapStr = match[0];
+    setSelectedPaper(paperStr);
+    setSelectedChapterName(chapStr);
+
+    const subjectObj = syllabus.find(s => s.id === set.subject || s.category?.toLowerCase() === set.subject?.toLowerCase()) || {
+      id: set.subject || 'biology',
+      name: set.subject === 'biology' ? 'জীববিজ্ঞান' : set.subject === 'physics' ? 'পদার্থবিজ্ঞান' : set.subject === 'chemistry' ? 'রসায়ন' : 'মেডিকেল প্রশ্নব্যাংক',
+      icon: 'BookOpen',
+      color: 'text-amber-400',
+      chapters: [],
+      activeChapters: []
+    } as Subject;
+    setSelectedSubject(subjectObj);
+
+    // Set questions & mode & time
+    setCustomExamQuestions(questions);
+    setCustomExamTitle(set.title);
+    setQuizMode(mode === 'practice' ? 'quiz' : 'exam');
+    setExamTimeLimitMinutes(validatedTime);
+    
+    // Set currentView to quiz
     setCurrentView('quiz');
   };
 
@@ -697,6 +952,8 @@ export default function App() {
       questions = bio1Chap1Data?.questions || [];
     } else if (selectedSubject?.id === 'bio1' && selectedChapterIndex === 6) {
       questions = bio1Chap7Data?.questions || [];
+    } else if (selectedSubject?.id === 'bio1' && selectedChapterIndex === 7) {
+      questions = bio1Chap8Data?.questions || [];
     } else if (selectedSubject?.id === 'bio2' && selectedChapterIndex === 0) {
       questions = sampleChapterData?.questions || [];
     } else if (selectedSubject?.id === 'phys1' && selectedChapterIndex === 1) {
@@ -745,6 +1002,8 @@ export default function App() {
       questions = dcuChemEnvironmentalData?.questions || [];
     } else if (selectedSubject?.id === 'math1' && selectedChapterIndex === 8) {
       questions = math1Chap9Data?.questions || [];
+    } else if (selectedSubject?.id === 'ict' && selectedChapterIndex === 2) {
+      questions = ictChap3Data?.questions || [];
     }
 
     // Apply Overrides globally to all questions found
@@ -791,7 +1050,7 @@ export default function App() {
       <Navbar 
         user={user} 
         userData={userData}
-        isAdmin={userData?.role === 'admin'}
+        isAdmin={isAdminUser}
         authLoading={authLoading} 
         onLogout={handleLogout} 
         onNavigate={handleNavigate as any} 
@@ -811,6 +1070,8 @@ export default function App() {
               setCurrentCategory(category);
               if (category === 'medical') {
                 setCurrentView('medical-dashboard');
+              } else if (category === 'varsity') {
+                setCurrentView('varsity-dashboard');
               } else {
                 setCurrentView(`category_${category}` as ViewState);
               }
@@ -868,27 +1129,76 @@ export default function App() {
         {currentView === 'medical-question-bank' && (
           <MedicalQuestionBank
             syllabus={syllabus}
-            onBack={() => setCurrentView('medical-dashboard')}
+            initialSubject={medQuestionBankInitialSubject}
+            initialPaper={medQuestionBankInitialPaper}
+            initialChapterName={medQuestionBankInitialChapterName}
+            onBack={() => {
+              setMedQuestionBankInitialChapterName(undefined);
+              setCurrentView('medical-dashboard');
+            }}
             onStartQuiz={(subject, chapterIndex, mode) => {
               setCustomExamQuestions(null);
               setSelectedSubject(subject);
               setSelectedChapterIndex(chapterIndex);
               setQuizMode(mode || 'quiz');
+              setExamTimeLimitMinutes(null);
               setCurrentView('quiz');
             }}
-            onStartCustomTest={(questions, title, mode) => {
+            onStartCustomTest={(questions, title, mode, timeLimitMinutes) => {
               setCustomExamQuestions(questions);
               setCustomExamTitle(title);
               setQuizMode(mode || 'quiz');
+              setExamTimeLimitMinutes(timeLimitMinutes ?? null);
               setCurrentView('quiz');
+            }}
+          />
+        )}
+
+        {currentView === 'medical-subject-preparation' && (
+          <MedicalSubjectPreparation
+            onBack={() => setCurrentView('medical-dashboard')}
+            userData={userData}
+            onOpenQuestionBank={(subject, paper, chapterName) => {
+              setMedQuestionBankInitialSubject(subject);
+              setMedQuestionBankInitialPaper(paper);
+              setMedQuestionBankInitialChapterName(chapterName);
+              setCurrentView('medical-question-bank');
+            }}
+            onAddToRoutine={(title, durationMinutes) => {
+              setRoutineNavOptions({ openAddTask: true, focusToday: true });
+              setCurrentView('routine');
             }}
           />
         )}
 
         {currentView === 'medical-past-questions' && (
           <MedicalPastQuestions
-            onBack={() => setCurrentView('medical-dashboard')}
+            onBack={() => {
+              setActivePastQuestionSet(null);
+              setSelectedFeature(null);
+              setSelectedQuestionCollectionId(null);
+              setCurrentView('medical-dashboard');
+            }}
             pastQuestionSets={[]}
+            initialActiveSet={activePastQuestionSet}
+            initialTimeMinutes={pastQuestionModalTime}
+            initialMode={pastQuestionModalMode}
+            onStartPastQuestionQuiz={handleStartPastQuestionQuiz}
+            onStartCustomTest={(questions, title, mode, timeLimitMinutes, meta) => {
+              if (meta?.rawSet) {
+                handleStartPastQuestionQuiz(meta.rawSet, timeLimitMinutes || 15, mode || 'exam');
+              } else {
+                handleStartPastQuestionQuiz({
+                  id: meta?.collectionId || 'custom_set',
+                  title: title,
+                  subject: meta?.subject || 'biology',
+                  year: '2024',
+                  sourceStatus: 'verified',
+                  questionIds: questions.map(q => q.id),
+                  questions: questions
+                }, timeLimitMinutes || 15, mode || 'exam');
+              }
+            }}
           />
         )}
 
@@ -925,15 +1235,102 @@ export default function App() {
           />
         )}
 
-        {currentView === 'category_varsity' && (
-          <CategoryPage
-            category="varsity"
-            syllabus={syllabus}
-            onSelectSubject={handleSelectSubject}
-            onBack={handleGoHome}
+        {(currentView === 'category_varsity' || currentView === 'varsity-dashboard') && (
+          <VarsityDashboard
+            onNavigate={(v) => setCurrentView(v as ViewState)}
+            onOpenRouteSetup={() => setShowRouteModal(true)}
+            gameProfile={gameProfile}
+            onSelectSubjectForPractice={(subjectId) => {
+              setVarsityInitialSubject(subjectId as VarsitySubjectKey);
+              setCurrentView('varsity-subject-preparation');
+            }}
+          />
+        )}
+
+        {currentView === 'varsity-unit-practice' && (
+          <VarsityUnitPractice
+            onBack={() => setCurrentView('varsity-dashboard')}
+            onStartQuiz={({ mode, questions, title, timeMinutes }) => {
+              setCustomExamQuestions(questions);
+              setCustomExamTitle(title);
+              setQuizMode(mode || 'quiz');
+              setExamTimeLimitMinutes(timeMinutes ?? null);
+              setCurrentView('quiz');
+            }}
+          />
+        )}
+
+        {currentView === 'varsity-past-questions' && (
+          <VarsityPastQuestions
+            onBack={() => setCurrentView('varsity-dashboard')}
+            onStartQuiz={({ mode, questions, title, timeMinutes }) => {
+              setCustomExamQuestions(questions);
+              setCustomExamTitle(title);
+              setQuizMode(mode || 'quiz');
+              setExamTimeLimitMinutes(timeMinutes ?? null);
+              setCurrentView('quiz');
+            }}
+          />
+        )}
+
+        {(currentView === 'varsity-subject-preparation' || currentView === 'varsity-question-bank') && (
+          <VarsitySubjectPreparation
+            initialSubject={varsityInitialSubject || 'physics'}
+            onBack={() => setCurrentView('varsity-dashboard')}
+            onStartQuiz={({ mode, questions, title, timeMinutes }) => {
+              setCustomExamQuestions(questions);
+              setCustomExamTitle(title);
+              setQuizMode(mode || 'quiz');
+              setExamTimeLimitMinutes(timeMinutes ?? null);
+              setCurrentView('quiz');
+            }}
+          />
+        )}
+
+        {(currentView === 'varsity-model-test' || currentView === 'varsity-model-tests') && (
+          <VarsityModelTests
+            onBack={() => setCurrentView('varsity-dashboard')}
+            onStartQuiz={({ mode, questions, title, timeMinutes }) => {
+              setCustomExamQuestions(questions);
+              setCustomExamTitle(title);
+              setQuizMode(mode || 'exam');
+              setExamTimeLimitMinutes(timeMinutes ?? null);
+              setCurrentView('quiz');
+            }}
           />
         )}
         
+        {currentView === 'board_chapters' && selectedSubject && (
+          <BoardChapterList
+            subject={selectedSubject}
+            allBoardQuestions={boardQuestions}
+            userData={userData}
+            onBack={() => setCurrentView('category_board')}
+            onSelectChapter={(chapterIndex) => {
+              setSelectedChapterIndex(chapterIndex);
+              setCurrentView('board_chapter_page');
+            }}
+          />
+        )}
+
+        {currentView === 'board_chapter_page' && selectedSubject && selectedChapterIndex !== null && (
+          <BoardChapterPage
+            subject={selectedSubject}
+            chapterIndex={selectedChapterIndex}
+            allBoardQuestions={boardQuestions}
+            userData={userData}
+            onBack={() => setCurrentView('board_chapters')}
+            onGoHome={handleGoHome}
+            onStartQuiz={(questions, title, mode, year) => {
+              setCustomExamQuestions(questions);
+              setCustomExamTitle(title);
+              setQuizMode(mode);
+              setSelectedBoardYear(year);
+              setCurrentView('quiz');
+            }}
+          />
+        )}
+
         {currentView === 'chapters' && selectedSubject && (
           <ChapterList 
             subject={selectedSubject} 
@@ -965,7 +1362,14 @@ export default function App() {
             examTimeLimitMinutes={examTimeLimitMinutes}
             onComplete={handleQuizComplete} 
             onBack={() => {
-              if (customExamQuestions) {
+              if (selectedFeature === 'past_questions') {
+                setCustomExamQuestions(null);
+                setCurrentView('medical-past-questions');
+              } else if (currentCategory === 'board') {
+                setCustomExamQuestions(null);
+                setSelectedBoardYear(null);
+                setCurrentView('board_chapter_page');
+              } else if (selectedFeature === 'subject_tests' || (customExamQuestions && !selectedFeature)) {
                 setCustomExamQuestions(null);
                 setCurrentView('medical-subject-tests');
               } else {
@@ -982,7 +1386,18 @@ export default function App() {
             userData={userData}
             onRetry={handleRetry}
             onGoHome={handleGoHome}
-            onBack={() => setCurrentView('topics')}
+            onBack={() => {
+              if (selectedFeature === 'past_questions') {
+                setCustomExamQuestions(null);
+                setCurrentView('medical-past-questions');
+              } else if (currentCategory === 'board') {
+                setCurrentView('board_chapter_page');
+              } else if (selectedFeature === 'subject_tests') {
+                setCurrentView('medical-subject-tests');
+              } else {
+                setCurrentView('topics');
+              }
+            }}
             onShowLeaderboard={handleShowLeaderboard}
             onAskMentorHelp={() => setCurrentView('doubt-arena')}
           />
@@ -1012,8 +1427,8 @@ export default function App() {
           />
         )}
 
-        {currentView === 'admin' && userData?.role === 'admin' && (
-          <AdminDashboard user={user} isAdmin={userData?.role === 'admin'} onBack={handleGoHome} />
+        {currentView === 'admin' && isAdminUser && (
+          <AdminDashboard user={user} isAdmin={true} syllabus={syllabus} onBack={handleGoHome} />
         )}
 
         {currentView === 'shop' && (

@@ -6,6 +6,7 @@ import { Subject } from '../types';
 interface ProgressionMapProps {
   subject: Subject;
   userData: any;
+  selectedSectionId?: string | 'all';
   onSelectChapter: (chapterIndex: number) => void;
   onBack: () => void;
 }
@@ -74,23 +75,42 @@ export function getChapterLearningStatus(
   };
 }
 
-export default function ProgressionMap({ subject, userData, onSelectChapter, onBack }: ProgressionMapProps) {
-  const chapters = subject.chapters;
-  const numChapters = chapters.length;
+export default function ProgressionMap({ subject, userData, selectedSectionId, onSelectChapter, onBack }: ProgressionMapProps) {
+  const sections = subject.sections || [];
+  const activeSection = sections.find(s => s.id === selectedSectionId);
 
-  // Default to selecting chapter 0 or first chapter needing attention
-  const [selectedIndex, setSelectedIndex] = useState<number>(0);
+  // Map chapters with their original indices
+  const allChaptersWithIndex = subject.chapters.map((title, idx) => ({ title, originalIndex: idx }));
+  const visibleChapters = allChaptersWithIndex.filter(item => {
+    if (!subject.hasSections || !selectedSectionId || selectedSectionId === 'all' || !activeSection) return true;
+    const chNum = item.originalIndex + 1;
+    return chNum >= activeSection.chapterRange.start && chNum <= activeSection.chapterRange.end;
+  });
 
-  // Find recommended chapter (first not mastered or first needs_revision)
-  let recommendedIndex = 0;
-  for (let i = 0; i < numChapters; i++) {
-    const info = getChapterLearningStatus(subject.id, i, userData);
+  const numChapters = visibleChapters.length;
+
+  // Default to selecting first visible chapter
+  const [selectedIndex, setSelectedIndex] = useState<number>(
+    visibleChapters.length > 0 ? visibleChapters[0].originalIndex : 0
+  );
+
+  // Update selectedIndex if it's not in visibleChapters
+  React.useEffect(() => {
+    if (visibleChapters.length > 0 && !visibleChapters.some(c => c.originalIndex === selectedIndex)) {
+      setSelectedIndex(visibleChapters[0].originalIndex);
+    }
+  }, [selectedSectionId, visibleChapters, selectedIndex]);
+
+  // Find recommended chapter among visible ones
+  let recommendedIndex = visibleChapters.length > 0 ? visibleChapters[0].originalIndex : 0;
+  for (const item of visibleChapters) {
+    const info = getChapterLearningStatus(subject.id, item.originalIndex, userData);
     if (info.status === 'needs_revision') {
-      recommendedIndex = i;
+      recommendedIndex = item.originalIndex;
       break;
     }
     if (info.status === 'in_practice' || info.status === 'not_started') {
-      recommendedIndex = i;
+      recommendedIndex = item.originalIndex;
       break;
     }
   }
@@ -106,7 +126,7 @@ export default function ProgressionMap({ subject, userData, onSelectChapter, onB
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
               <BookMarked className="w-5 h-5 text-indigo-400" />
-              অধ্যায় সমূহের তালিকা
+              {activeSection ? `${activeSection.name} অধ্যায় সমূহ` : 'অধ্যায় সমূহের তালিকা'}
             </h2>
             <span className="text-xs text-slate-400">
               মোট {numChapters} টি অধ্যায়
@@ -114,7 +134,7 @@ export default function ProgressionMap({ subject, userData, onSelectChapter, onB
           </div>
 
           <div className="relative pl-6 border-l-2 border-slate-800 space-y-5 py-2">
-            {chapters.map((chapterTitle, idx) => {
+            {visibleChapters.map(({ title: chapterTitle, originalIndex: idx }) => {
               const statusInfo = getChapterLearningStatus(subject.id, idx, userData);
               const isSelected = selectedIndex === idx;
               const isRecommended = recommendedIndex === idx;
@@ -178,14 +198,14 @@ export default function ProgressionMap({ subject, userData, onSelectChapter, onB
           <div className="border-b border-slate-800 pb-4">
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-mono font-bold text-indigo-400 uppercase">
-                অধ্যায় {selectedIndex + 1} / {numChapters}
+                অধ্যায় {selectedIndex + 1} / {subject.chapters.length}
               </span>
               <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full border ${selectedStatus.statusBg} ${selectedStatus.statusColor} ${selectedStatus.statusBorder}`}>
                 {selectedStatus.statusLabel}
               </span>
             </div>
             <h3 className="text-lg font-bold text-white leading-snug">
-              {chapters[selectedIndex]}
+              {subject.chapters[selectedIndex]}
             </h3>
           </div>
 

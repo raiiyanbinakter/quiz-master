@@ -33,6 +33,7 @@ export async function fetchQuestions(filters?: {
   status?: QuestionStatus;
   subject?: MedicalSubject;
   feature?: DeliveryFeature;
+  route?: 'medical' | 'academic' | 'varsity' | string;
 }): Promise<QuestionItem[]> {
   try {
     let q = query(collection(db, QUESTIONS_COLLECTION));
@@ -41,6 +42,9 @@ export async function fetchQuestions(filters?: {
     }
     if (filters?.subject) {
       q = query(q, where('subject', '==', filters.subject));
+    }
+    if (filters?.route) {
+      q = query(q, where('route', '==', filters.route));
     }
 
     const snapshot = await getDocs(q);
@@ -72,7 +76,7 @@ export async function saveQuestionItem(question: Partial<QuestionItem>): Promise
     ...question,
     id: questionId,
     version: question.version || 1,
-    route: 'medical',
+    route: question.route || 'academic',
     status: question.status || 'draft',
     createdAt: question.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString()

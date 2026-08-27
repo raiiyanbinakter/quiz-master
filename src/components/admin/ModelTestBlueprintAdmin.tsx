@@ -40,12 +40,18 @@ export default function ModelTestBlueprintAdmin() {
   // Sync blueprints from Firestore
   useEffect(() => {
     try {
-      const unsubscribe = onSnapshot(collection(db, 'model_test_blueprints'), (snapshot) => {
-        const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as MedicalModelTestBlueprint[];
-        if (docs.length > 0) {
-          setBlueprints(docs);
+      const unsubscribe = onSnapshot(
+        collection(db, 'model_test_blueprints'),
+        (snapshot) => {
+          const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as MedicalModelTestBlueprint[];
+          if (docs.length > 0) {
+            setBlueprints(docs);
+          }
+        },
+        (error) => {
+          console.warn('Blueprints admin snapshot listener error:', error);
         }
-      });
+      );
       return unsubscribe;
     } catch (e) {
       console.error('Error fetching blueprints in admin:', e);

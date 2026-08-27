@@ -4,16 +4,53 @@ import {
   DeliveryFeature,
   MedicalSubject,
   SourceStatus,
-  QuestionStatus
+  QuestionStatus,
+  TeacherSourceSet,
+  TeacherSourceSetLabel
 } from '../types/questionBank';
+
+export interface AdminImportTargetMetadata {
+  route: 'academic' | 'medical' | 'varsity' | 'engineering';
+  feature: DeliveryFeature;
+  subject: string;
+  subjectId?: string;
+  subjectName?: string;
+  paper: 'first' | 'second' | 'not_applicable';
+  sectionId?: string;
+  sectionName?: string;
+  chapterId?: string;
+  chapterName: string;
+  topicId?: string;
+  topicName?: string;
+  sourceSet?: TeacherSourceSet | string;
+  sourceSetLabel?: TeacherSourceSetLabel | string;
+  customTeacherSource?: string;
+  sourceStatus?: SourceStatus;
+  sourceTitle?: string;
+  pastYear?: string | number;
+  pastExamYear?: string | number;
+  boardOrExam?: string;
+}
+
+export type MedicalImportTargetMetadata = AdminImportTargetMetadata;
 
 export interface ParseResultItem {
   index: number;
   rawId?: string;
-  parsedItem?: Partial<QuestionItem>;
+  sourceQuestionNumber?: string | number;
+  parsedItem?: Partial<QuestionItem> & {
+    questionText?: string;
+    correctOption?: string;
+    shortExplanation?: string;
+    detailedExplanation?: string;
+    timeSeconds?: number;
+    hasImagePlaceholder?: boolean;
+    sourceStatus?: SourceStatus;
+  };
   errors: string[];
   isDuplicateCandidate?: boolean;
   needsSourceVerification?: boolean;
+  hasImagePlaceholder?: boolean;
   rawFields: Record<string, string>;
 }
 
@@ -26,39 +63,52 @@ export interface ParseResult {
   items: ParseResultItem[];
 }
 
-const ALLOWED_SUBJECTS: MedicalSubject[] = [
-  'physics',
-  'chemistry',
-  'biology',
-  'english',
-  'general_knowledge'
+export const ALLOWED_DELIVERY_FEATURES: Array<{ id: DeliveryFeature; label: string }> = [
+  { id: 'practice_bank', label: 'Practice Question Bank' },
+  { id: 'past_questions', label: 'Past Year Questions' },
+  { id: 'subject_test', label: 'Subject Test' },
+  { id: 'mock_test', label: 'Mock Test' },
+  { id: 'model_test', label: 'Model Test' },
+  { id: 'routine_review', label: 'Routine Review' }
 ];
 
-const ALLOWED_FEATURES: DeliveryFeature[] = [
-  'practice_bank',
-  'past_questions',
-  'subject_test',
-  'mock_test',
-  'routine_review',
-  'competition_future'
-];
-
-const ALLOWED_SOURCE_STATUSES: SourceStatus[] = [
-  'verified',
-  'needs_verification',
-  'original_practice'
+export const KNOWN_TEACHER_OPTIONS = [
+  { id: 'ishak', label: 'ইসহাক স্যার' },
+  { id: 'topon', label: 'তপন স্যার' },
+  { id: 'pramanik', label: 'প্রামাণিক স্যার' },
+  { id: 'tofazzal', label: 'তোফাজ্জল স্যার' },
+  { id: 'hazari', label: 'হাজারী স্যার' },
+  { id: 'kabir', label: 'কবীর স্যার' },
+  { id: 'guha', label: 'গুহ স্যার' },
+  { id: 'lincoln', label: 'লিংকন স্যার' },
+  { id: 'abul_hasan', label: 'আবুল হাসান স্যার' },
+  { id: 'gazi_ajmol', label: 'গাজী আজমল স্যার' },
+  { id: 'majeda', label: 'মাজেদা বেগম ম্যাডাম' },
+  { id: 'other', label: 'অন্যান্য' }
 ];
 
 const RECOGNIZED_HEADERS = new Set([
   'ID',
+  'SOURCE_QUESTION_NUMBER',
+  'SOURCE_Q_NO',
+  'QUESTION_NUMBER',
+  'Q_NO',
+  'SL',
+  'MODULE',
   'ROUTE',
   'SUBJECT',
   'PAPER',
   'CHAPTER',
   'TOPIC',
+  'TOPIC_ID',
+  'SOURCE_SET',
+  'TEACHER',
+  'AUTHOR',
+  'SOURCE',
   'FEATURES',
   'DIFFICULTY',
   'TIME',
+  'ESTIMATED_TIME',
   'LANGUAGE',
   'SOURCE_STATUS',
   'SOURCE_TITLE',
@@ -67,22 +117,125 @@ const RECOGNIZED_HEADERS = new Set([
   'YEAR',
   'TAGS',
   'QUESTION',
+  'STEM',
   'A',
   'B',
   'C',
   'D',
+  'E',
   'ANSWER',
+  'CORRECT_ANSWER',
+  'ANS',
   'SHORT_EXPLANATION',
+  'EXPLANATION',
   'DETAILED_EXPLANATION',
+  'DETAILED_EXP',
   'HINT'
 ]);
+
+export function slugifyText(text?: string): string {
+  if (!text) return 'general';
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/[\s_-]+/g, '_')
+    .replace(/^-+|-+$/g, '') || 'general';
+}
+
+export function normalizeTeacherSet(raw?: string): { id: TeacherSourceSet | string; label: TeacherSourceSetLabel | string } | null {
+  if (!raw) return null;
+  const s = raw.trim().toLowerCase();
+  if (s.includes('ishak') || s.includes('ইসহাক')) {
+    return { id: 'ishak', label: 'ইসহাক স্যার' };
+  }
+  if (s.includes('topon') || s.includes('তপন')) {
+    return { id: 'topon', label: 'তপন স্যার' };
+  }
+  if (s.includes('pramanik') || s.includes('প্রামাণিক')) {
+    return { id: 'pramanik', label: 'প্রামাণিক স্যার' };
+  }
+  if (s.includes('tofazzal') || s.includes('তোফাজ্জল')) {
+    return { id: 'tofazzal', label: 'তোফাজ্জল স্যার' };
+  }
+  if (s.includes('hazari') || s.includes('হাজারী') || s.includes('হাজারি')) {
+    return { id: 'hazari', label: 'হাজারী স্যার' };
+  }
+  if (s.includes('kabir') || s.includes('কবীর') || s.includes('কবির')) {
+    return { id: 'kabir', label: 'কবীর স্যার' };
+  }
+  if (s.includes('guha') || s.includes('গুহ')) {
+    return { id: 'guha', label: 'গুহ স্যার' };
+  }
+  if (s.includes('lincoln') || s.includes('লিংকন') || s.includes('লিঙ্কন')) {
+    return { id: 'lincoln', label: 'লিংকন স্যার' };
+  }
+  if (s.includes('hasan') || s.includes('হাসান')) {
+    return { id: 'abul_hasan', label: 'আবুল হাসান স্যার' };
+  }
+  if (s.includes('ajmol') || s.includes('আজমল')) {
+    return { id: 'gazi_ajmol', label: 'গাজী আজমল স্যার' };
+  }
+  if (s.includes('majeda') || s.includes('মাজেদা')) {
+    return { id: 'majeda', label: 'মাজেদা বেগম ম্যাডাম' };
+  }
+  return { id: slugifyText(raw), label: raw.trim() };
+}
+
+export function generateUniqueInternalQuestionId(
+  route: string,
+  subject: string,
+  paper: string,
+  chapterName: string,
+  teacherId: string,
+  topicId: string,
+  index: number,
+  sourceQuestionNum?: string | number
+): string {
+  const sRoute = route || 'med';
+  const sSub = subject.includes('phys') ? 'phy' : subject.includes('chem') ? 'chem' : subject.includes('bio') ? 'bio' : subject.includes('math') ? 'math' : subject;
+  const sPap = paper === 'second' ? '2' : paper === 'first' ? '1' : 'na';
+  const sChap = slugifyText(chapterName).substring(0, 14) || 'ch';
+  const sTeach = slugifyText(teacherId).substring(0, 10) || 'src';
+  const sTopic = slugifyText(topicId).substring(0, 12) || 'gen';
+  const qNum = sourceQuestionNum ? String(sourceQuestionNum) : String(index);
+  const rand = Math.random().toString(36).substring(2, 6);
+  const ts = Date.now().toString(36).slice(-4);
+
+  return `${sRoute}_${sSub}${sPap}_${sChap}_${sTeach}_${sTopic}_q${qNum}_${ts}${rand}`;
+}
 
 function normalizeString(str?: string): string {
   if (!str) return '';
   return str.toLowerCase().replace(/[\s\p{P}]/gu, '');
 }
 
-export function parsePlainTextQuestions(rawText: string, creatorEmail: string = 'admin@example.com'): ParseResult {
+export function checkImagePlaceholder(text: string): boolean {
+  if (!text) return false;
+  return (
+    text.includes('[এখানে চিত্র ছিল]') ||
+    text.includes('[IMAGE_PLACEHOLDER]') ||
+    text.includes('[চিত্র ছিল]') ||
+    text.includes('[চিত্র:') ||
+    text.includes('[চিত্র]')
+  );
+}
+
+function mapBanglaOptionToLetter(val: string): string {
+  const v = val.trim().toUpperCase();
+  if (v === 'ক' || v === 'A' || v.startsWith('ক') || v === 'অপশন ক' || v === 'OPTION A') return 'A';
+  if (v === 'খ' || v === 'B' || v.startsWith('খ') || v === 'অপশন খ' || v === 'OPTION B') return 'B';
+  if (v === 'গ' || v === 'C' || v.startsWith('গ') || v === 'অপশন গ' || v === 'OPTION C') return 'C';
+  if (v === 'ঘ' || v === 'D' || v.startsWith('ঘ') || v === 'অপশন ঘ' || v === 'OPTION D') return 'D';
+  if (v === 'ঙ' || v === 'E' || v.startsWith('ঙ') || v === 'অপশন ঙ' || v === 'OPTION E') return 'E';
+  return v;
+}
+
+export function parsePlainTextQuestions(
+  rawText: string,
+  creatorEmail: string = 'admin@example.com',
+  targetMetadata?: AdminImportTargetMetadata
+): ParseResult {
   if (!rawText || !rawText.trim()) {
     return {
       totalParsed: 0,
@@ -94,22 +247,48 @@ export function parsePlainTextQuestions(rawText: string, creatorEmail: string = 
     };
   }
 
+  // Check if text has top-level headers before first ---QUESTION---
+  const firstMarkerIndex = rawText.search(/---QUESTION---/i);
+  const globalHeaderFields: Record<string, string> = {};
+
+  if (firstMarkerIndex > 0) {
+    const preamble = rawText.substring(0, firstMarkerIndex);
+    const preambleLines = preamble.split(/\r?\n/);
+    preambleLines.forEach(line => {
+      const match = line.match(/^([A-Z_]+):\s*(.*)$/i);
+      if (match) {
+        const k = match[1].toUpperCase();
+        if (RECOGNIZED_HEADERS.has(k)) {
+          globalHeaderFields[k] = match[2].trim();
+        }
+      }
+    });
+  }
+
   // Split by ---QUESTION--- marker
   const rawBlocks = rawText
     .split(/---QUESTION---/i)
     .map(b => b.replace(/---END---/gi, '').trim())
     .filter(b => b.length > 0);
 
+  let questionBlocks = rawBlocks;
+  if (firstMarkerIndex > 0 && questionBlocks.length > 1) {
+    if (!rawBlocks[0].includes('QUESTION:') && !rawBlocks[0].includes('ANSWER:') && !rawBlocks[0].includes('A:')) {
+      questionBlocks = rawBlocks.slice(1);
+    }
+  }
+
   const parsedItems: ParseResultItem[] = [];
   const normalizedStems = new Set<string>();
 
-  rawBlocks.forEach((block, blockIndex) => {
+  questionBlocks.forEach((block, blockIndex) => {
     const lines = block.split(/\r?\n/);
-    const fields: Record<string, string> = {};
+    const fields: Record<string, string> = { ...globalHeaderFields };
     let currentKey: string | null = null;
 
     lines.forEach(line => {
-      const match = line.match(/^([A-Z_]+):\s*(.*)$/i);
+      // Look for standard KEY: value line
+      const match = line.match(/^([A-Z_]+)\s*:\s*(.*)$/i);
       if (match) {
         const potentialKey = match[1].toUpperCase();
         if (RECOGNIZED_HEADERS.has(potentialKey)) {
@@ -119,6 +298,17 @@ export function parsePlainTextQuestions(rawText: string, creatorEmail: string = 
         }
       }
 
+      // Look for Bengali option keys like ক: বা খ:
+      const banglaOptMatch = line.match(/^(ক|খ|গ|ঘ|ঙ)\s*:\s*(.*)$/);
+      if (banglaOptMatch) {
+        const bKey = banglaOptMatch[1];
+        const letterKey = bKey === 'ক' ? 'A' : bKey === 'খ' ? 'B' : bKey === 'গ' ? 'C' : bKey === 'ঘ' ? 'D' : 'E';
+        currentKey = letterKey;
+        fields[currentKey] = banglaOptMatch[2];
+        return;
+      }
+
+      // Multi-line continuation
       if (currentKey) {
         fields[currentKey] = (fields[currentKey] ? fields[currentKey] + '\n' : '') + line;
       }
@@ -131,188 +321,236 @@ export function parsePlainTextQuestions(rawText: string, creatorEmail: string = 
 
     const errors: string[] = [];
 
-    // Validation: ROUTE
-    const route = (fields['ROUTE'] || '').toLowerCase();
-    if (!route) {
-      errors.push('ROUTE missing');
-    } else if (route !== 'medical') {
-      errors.push('ROUTE must be medical for this version');
-    }
+    // Target mapping with fallback to parsed fields
+    const route = ((fields['ROUTE'] || targetMetadata?.route || 'academic').toLowerCase()) as
+      | 'academic'
+      | 'medical'
+      | 'varsity'
+      | 'engineering';
 
-    // Validation: SUBJECT
-    const subject = (fields['SUBJECT'] || '').toLowerCase() as MedicalSubject;
+    const subject = (fields['SUBJECT'] || targetMetadata?.subject || '').trim().toLowerCase();
     if (!subject) {
       errors.push('SUBJECT missing');
-    } else if (!ALLOWED_SUBJECTS.includes(subject)) {
-      errors.push(`SUBJECT '${fields['SUBJECT']}' is invalid. Allowed: physics, chemistry, biology, english, general_knowledge`);
-    }
-
-    // Validation: FEATURES
-    const rawFeatures = (fields['FEATURES'] || '').split(',').map(f => f.trim().toLowerCase()).filter(Boolean);
-    const validFeatures: DeliveryFeature[] = [];
-    rawFeatures.forEach(f => {
-      if (ALLOWED_FEATURES.includes(f as DeliveryFeature)) {
-        validFeatures.push(f as DeliveryFeature);
-      } else {
-        errors.push(`Invalid feature tag '${f}'`);
+      errors.push('বিষয় (Subject) নির্বাচন করা হয়নি বা পাওয়া যায়নি।');
+    } else {
+      const validSubjects = ['biology', 'chemistry', 'physics', 'english', 'general_knowledge', 'math', 'higher_math', 'ict'];
+      if (!validSubjects.includes(subject)) {
+        errors.push(`SUBJECT '${fields['SUBJECT'] || subject}' is invalid`);
       }
-    });
-    if (rawFeatures.length === 0) {
-      errors.push('FEATURES missing');
     }
 
-    // Validation: QUESTION text (stem)
-    const stem = fields['QUESTION'] || '';
-    if (!stem) {
-      errors.push('QUESTION text missing');
+    const paper = ((fields['PAPER'] || targetMetadata?.paper || 'first').toLowerCase()) as
+      | 'first'
+      | 'second'
+      | 'not_applicable';
+
+    const chapterName = (fields['CHAPTER'] || targetMetadata?.chapterName || 'সাধারণ অধ্যায়').trim();
+    if (!chapterName && targetMetadata) {
+      errors.push('অধ্যায় (Chapter) নির্বাচন করা হয়নি বা পাওয়া যায়নি।');
     }
 
-    // Options A, B, C required, D optional for 3-option MCQ
+    const topicName = (fields['TOPIC'] || targetMetadata?.topicName || 'সাধারণ টপিক').trim();
+    const topicId = fields['TOPIC_ID'] || targetMetadata?.topicId || slugifyText(topicName);
+
+    // Topic can be optional only for model_test or mock_test
+    const feature = (fields['FEATURES'] || targetMetadata?.feature || 'practice_bank') as DeliveryFeature;
+    const isTopicRequired = feature !== 'model_test' && feature !== 'mock_test';
+    if (isTopicRequired && !topicName && targetMetadata) {
+      errors.push('টপিক (Topic) নির্বাচন করা হয়নি বা পাওয়া যায়নি।');
+    }
+
+    // Teacher Source Set
+    const rawTeacher = fields['SOURCE_SET'] || fields['TEACHER'] || fields['AUTHOR'] || targetMetadata?.customTeacherSource || targetMetadata?.sourceSet || 'ishak';
+    const normSourceSet = normalizeTeacherSet(rawTeacher) || (targetMetadata?.sourceSet ? { id: targetMetadata.sourceSet, label: targetMetadata.sourceSetLabel || 'ইসহাক স্যার' } : { id: 'ishak', label: 'ইসহাক স্যার' });
+
+    // Question Text / Stem
+    const stem = fields['QUESTION'] || fields['STEM'] || '';
+    if (!stem || !stem.trim()) {
+      errors.push('QUESTION missing');
+      errors.push(`প্রশ্ন ${blockIndex + 1}: প্রশ্নের মূল বক্তব্য (QUESTION) অনুপস্থিত।`);
+    }
+
+    // Options A, B, C, D
     const optionA = fields['A'] || '';
     const optionB = fields['B'] || '';
     const optionC = fields['C'] || '';
     const optionD = fields['D'] || '';
+    const optionE = fields['E'] || '';
 
-    if (!optionA) errors.push('Option A missing');
-    if (!optionB) errors.push('Option B missing');
-    if (!optionC) errors.push('Option C missing');
+    if (!optionA) errors.push(`প্রশ্ন ${blockIndex + 1}: অপশন A অনুপস্থিত।`);
+    if (!optionB) errors.push(`প্রশ্ন ${blockIndex + 1}: অপশন B অনুপস্থিত।`);
+    if (!optionC) errors.push(`প্রশ্ন ${blockIndex + 1}: অপশন C অনুপস্থিত।`);
 
     const options: QuestionOption[] = [];
     if (optionA) options.push({ id: 'A', text: optionA });
     if (optionB) options.push({ id: 'B', text: optionB });
     if (optionC) options.push({ id: 'C', text: optionC });
     if (optionD) options.push({ id: 'D', text: optionD });
+    if (optionE) options.push({ id: 'E', text: optionE });
 
-    // Validation: ANSWER
-    const rawAnswer = (fields['ANSWER'] || '').trim().toUpperCase();
-    if (!rawAnswer) {
+    // Answer resolution
+    const rawAnswerField = fields['ANSWER'] || fields['CORRECT_ANSWER'] || fields['ANS'] || '';
+    let resolvedAnswer = mapBanglaOptionToLetter(rawAnswerField);
+
+    if (!resolvedAnswer) {
       errors.push('ANSWER missing');
+      errors.push(`প্রশ্ন ${blockIndex + 1}: সঠিক উত্তর (ANSWER) অনুপস্থিত।`);
     } else {
-      const matchingOption = options.find(o => o.id === rawAnswer);
+      // If answer is not 'A', 'B', 'C', 'D', 'E', check if it matches option text
+      let matchingOption = options.find(o => o.id === resolvedAnswer);
+      if (!matchingOption && rawAnswerField) {
+        const textMatch = options.find(o => o.text.trim().toLowerCase() === rawAnswerField.trim().toLowerCase());
+        if (textMatch) {
+          resolvedAnswer = textMatch.id;
+          matchingOption = textMatch;
+        }
+      }
+
       if (!matchingOption) {
-        errors.push(`ANSWER '${rawAnswer}' does not match an option (${options.map(o => o.id).join(', ')})`);
+        const availableChoices = options.map(o => o.id).join(', ') || 'কোনো অপশন নেই';
+        errors.push(`ANSWER '${rawAnswerField}' does not match an option`);
+        errors.push(`প্রশ্ন ${blockIndex + 1}: সঠিক উত্তর ${rawAnswerField} দেওয়া হয়েছে, কিন্তু ${availableChoices} অপশনের মধ্যে পাওয়া যায়নি।`);
       }
     }
 
-    // Validation: SHORT_EXPLANATION
-    const shortExplanation = fields['SHORT_EXPLANATION'] || '';
-    if (!shortExplanation) {
+    // Short Explanation
+    const shortExplanation = fields['SHORT_EXPLANATION'] || fields['EXPLANATION'] || '';
+    if (!shortExplanation || !shortExplanation.trim()) {
       errors.push('SHORT_EXPLANATION missing');
+      errors.push(`প্রশ্ন ${blockIndex + 1}: সংক্ষিপ্ত ব্যাখ্যা (SHORT_EXPLANATION) অনুপস্থিত।`);
     }
 
-    // Validation: TIME
-    const rawTime = fields['TIME'] || '';
+    const detailedExplanation = fields['DETAILED_EXPLANATION'] || fields['DETAILED_EXP'] || undefined;
+
+    // Time validation (10 to 300 seconds)
+    const rawTime = fields['TIME'] || fields['ESTIMATED_TIME'] || '';
     let estimatedSeconds = parseInt(rawTime, 10);
     if (!rawTime) {
-      errors.push('TIME missing');
       estimatedSeconds = 45;
     } else if (isNaN(estimatedSeconds) || estimatedSeconds < 10 || estimatedSeconds > 300) {
-      errors.push('TIME must be between 10 and 300 seconds');
+      errors.push(`প্রশ্ন ${blockIndex + 1}: সময় ১০ থেকে ৩০০ সেকেন্ডের মধ্যে হতে হবে (বর্তমান: ${rawTime})।`);
+      estimatedSeconds = 45;
     }
 
-    // Validation: SOURCE_STATUS
-    const sourceStatus = (fields['SOURCE_STATUS'] || 'needs_verification').toLowerCase() as SourceStatus;
-    if (!fields['SOURCE_STATUS']) {
-      errors.push('SOURCE_STATUS missing');
-    } else if (!ALLOWED_SOURCE_STATUSES.includes(sourceStatus)) {
-      errors.push(`SOURCE_STATUS '${fields['SOURCE_STATUS']}' is invalid`);
-    }
+    // Image placeholder detection
+    const fullTextContent = `${stem} ${shortExplanation} ${detailedExplanation || ''}`;
+    const hasImagePlaceholder = checkImagePlaceholder(fullTextContent);
 
-    const sourceTitle = fields['SOURCE_TITLE'] || '';
-    const year = fields['YEAR'] || '';
-
-    if (sourceStatus === 'verified' && !sourceTitle) {
-      errors.push('SOURCE_TITLE is required when SOURCE_STATUS is verified');
-    }
-
-    if (validFeatures.includes('past_questions')) {
-      if (!sourceTitle) {
-        errors.push('SOURCE_TITLE is required when FEATURES contains past_questions');
-      }
-      if (!year) {
-        errors.push('YEAR is required when FEATURES contains past_questions');
-      }
-    }
-
-    // Duplicate candidate check
-    const normalizedStem = normalizeString(stem);
+    // Duplicate detection
+    const normStem = normalizeString(stem);
     let isDuplicateCandidate = false;
-    if (normalizedStem) {
-      if (normalizedStems.has(normalizedStem)) {
+    if (normStem) {
+      if (normalizedStems.has(normStem)) {
         isDuplicateCandidate = true;
+        errors.push(`প্রশ্ন ${blockIndex + 1}: একই ব্যাচের মধ্যে পূর্ববর্তী প্রশ্নের সাথে মিল (সম্ভাব্য ডুপ্লিকেট)।`);
       } else {
-        normalizedStems.add(normalizedStem);
+        normalizedStems.add(normStem);
       }
     }
 
+    const rawSourceStatus = (fields['SOURCE_STATUS'] || targetMetadata?.sourceStatus || 'original_practice').toLowerCase();
+    const sourceStatus: SourceStatus = ['verified', 'needs_verification', 'original_practice'].includes(rawSourceStatus)
+      ? (rawSourceStatus as SourceStatus)
+      : 'original_practice';
     const needsSourceVerification = sourceStatus === 'needs_verification';
 
-    // Construct QuestionItem if valid/partial
-    const paper = (fields['PAPER'] || 'not_applicable').toLowerCase() as any;
-    const difficulty = (fields['DIFFICULTY'] || 'standard').toLowerCase() as any;
-    const language = (fields['LANGUAGE'] || 'bn').toLowerCase() as any;
+    if (sourceStatus === 'verified' && !fields['SOURCE_TITLE'] && !targetMetadata?.sourceTitle) {
+      errors.push('SOURCE_TITLE is required when SOURCE_STATUS is verified');
+    }
+    if ((rawSourceStatus === 'past_year' || fields['PAST_YEAR']) && !fields['PAST_YEAR'] && !fields['YEAR'] && !targetMetadata?.pastYear) {
+      errors.push('PAST_YEAR is required when SOURCE_STATUS is past_year');
+    }
+    if (feature === 'past_questions' && !fields['YEAR'] && !fields['PAST_YEAR'] && !targetMetadata?.pastYear) {
+      errors.push('YEAR is required when FEATURES contains past_questions');
+    }
 
-    const tags = (fields['TAGS'] || '')
-      .split(',')
-      .map(t => t.trim())
-      .filter(Boolean);
+    const sourceQuestionNum = fields['SOURCE_QUESTION_NUMBER'] || fields['SOURCE_Q_NO'] || fields['QUESTION_NUMBER'] || fields['Q_NO'] || fields['SL'] || (blockIndex + 1);
 
-    const questionItem: Partial<QuestionItem> = {
-      id: fields['ID'] || `med_${Date.now()}_${blockIndex + 1}`,
-      version: 1,
-      route: 'medical',
+    const internalId = fields['ID'] || generateUniqueInternalQuestionId(
+      route,
       subject,
-      paper: ['first', 'second', 'not_applicable'].includes(paper) ? paper : 'not_applicable',
-      chapterName: fields['CHAPTER'] || '',
-      topicName: fields['TOPIC'] || '',
+      paper,
+      chapterName,
+      normSourceSet?.id || 'teacher',
+      topicId || 'general',
+      blockIndex + 1,
+      sourceQuestionNum
+    );
+
+    const parsedQuestion: NonNullable<ParseResultItem['parsedItem']> = {
+      id: internalId,
+      version: 1,
+      route,
+      subject,
+      subjectId: targetMetadata?.subjectId,
+      paper,
+      sectionId: targetMetadata?.sectionId,
+      sectionName: targetMetadata?.sectionName,
+      chapterId: targetMetadata?.chapterId,
+      chapterName,
+      topicId,
+      topicName: topicName || undefined,
+      sourceSet: normSourceSet?.id as any,
+      sourceSetLabel: normSourceSet?.label as any,
+      sourceQuestionNumber: sourceQuestionNum,
       questionType: 'single_choice',
       stem,
+      questionText: stem,
       options,
-      correctOptionId: rawAnswer,
+      correctOptionId: resolvedAnswer,
+      correctOption: resolvedAnswer,
       explanation: {
         shortExplanation,
-        detailedExplanation: fields['DETAILED_EXPLANATION'] || '',
-        hint: fields['HINT'] || ''
+        detailedExplanation,
+        hint: fields['HINT'] || undefined
       },
+      shortExplanation,
+      detailedExplanation,
       estimatedSeconds,
-      difficulty: ['foundation', 'standard', 'challenge', 'exam'].includes(difficulty) ? difficulty : 'standard',
-      language: ['bn', 'en', 'mixed'].includes(language) ? language : 'bn',
+      timeSeconds: estimatedSeconds,
+      difficulty: (fields['DIFFICULTY']?.toLowerCase() as any) || 'standard',
+      language: (fields['LANGUAGE']?.toLowerCase() as any) || 'bn',
       source: {
         status: sourceStatus,
-        title: sourceTitle,
-        url: fields['SOURCE_URL'] || '',
-        year
+        title: fields['SOURCE_TITLE'] || normSourceSet?.label || 'প্রশ্নব্যাংক',
+        publisher: fields['SOURCE_PUBLISHER'],
+        url: fields['SOURCE_URL'],
+        year: fields['YEAR']
       },
-      featureTags: validFeatures,
-      tags,
+      sourceStatus,
+      featureTags: [feature],
+      tags: fields['TAGS']
+        ? fields['TAGS'].split(',').map(t => t.trim()).filter(Boolean)
+        : [route, feature, subject, normSourceSet?.id || '', topicId || ''].filter(Boolean),
       status: 'draft',
       createdBy: creatorEmail,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      hasImagePlaceholder
     };
 
     parsedItems.push({
       index: blockIndex + 1,
       rawId: fields['ID'],
-      parsedItem: questionItem,
+      sourceQuestionNumber: sourceQuestionNum,
+      parsedItem: parsedQuestion,
       errors,
       isDuplicateCandidate,
       needsSourceVerification,
+      hasImagePlaceholder,
       rawFields: fields
     });
   });
 
-  const validItems = parsedItems.filter(i => i.errors.length === 0);
-  const invalidItems = parsedItems.filter(i => i.errors.length > 0);
-  const duplicateItems = parsedItems.filter(i => i.isDuplicateCandidate);
-  const needsVerifItems = parsedItems.filter(i => i.needsSourceVerification);
+  const validCount = parsedItems.filter(i => i.errors.length === 0).length;
+  const invalidCount = parsedItems.filter(i => i.errors.length > 0).length;
+  const duplicateCount = parsedItems.filter(i => i.isDuplicateCandidate).length;
+  const needsVerificationCount = parsedItems.filter(i => i.needsSourceVerification).length;
 
   return {
     totalParsed: parsedItems.length,
-    validCount: validItems.length,
-    invalidCount: invalidItems.length,
-    duplicateCount: duplicateItems.length,
-    needsVerificationCount: needsVerifItems.length,
+    validCount,
+    invalidCount,
+    duplicateCount,
+    needsVerificationCount,
     items: parsedItems
   };
 }
@@ -322,54 +560,41 @@ export function validatePublishGuard(question: Partial<QuestionItem>): string[] 
 
   if (!question.stem || !question.stem.trim()) {
     errors.push('Question text (stem) is required');
+    errors.push('প্রশ্নের মূল বক্তব্য (Stem) প্রয়োজন');
   }
 
   if (!question.options || question.options.length < 3) {
     errors.push('At least 3 options are required');
+    errors.push('কমপক্ষে ৩টি অপশন থাকা আবশ্যক');
   } else {
     question.options.forEach((opt, idx) => {
       if (!opt.text || !opt.text.trim()) {
-        errors.push(`Option ${opt.id || idx + 1} text cannot be empty`);
+        errors.push(`অপশন ${opt.id || idx + 1} এর টেক্সট খালি রাখা যাবে না`);
       }
     });
   }
 
   if (!question.correctOptionId) {
-    errors.push('Correct option ID is required');
+    errors.push('সঠিক উত্তর (Correct Option) নির্বাচন করা হয়নি');
   } else if (question.options && !question.options.some(o => o.id === question.correctOptionId)) {
-    errors.push(`Correct option '${question.correctOptionId}' is not among option choices`);
+    errors.push(`সঠিক উত্তর '${question.correctOptionId}' প্রদত্ত অপশন তালিকার সাথে মিলছে না`);
   }
 
   if (!question.explanation?.shortExplanation || !question.explanation.shortExplanation.trim()) {
     errors.push('Short explanation is required');
+    errors.push('সংক্ষিপ্ত ব্যাখ্যা (Short Explanation) আবশ্যক');
   }
 
-  if (!question.route || question.route !== 'medical') {
-    errors.push('Route must be medical');
+  if (!question.route) {
+    errors.push('রুট (Route) আবশ্যক');
   }
 
   if (!question.subject) {
-    errors.push('Subject is required');
+    errors.push('বিষয় (Subject) আবশ্যক');
   }
 
   if (!question.featureTags || question.featureTags.length === 0) {
-    errors.push('At least one feature tag is required');
-  }
-
-  if (question.source) {
-    if (question.source.status === 'verified' && !question.source.title) {
-      errors.push('Source title is required when source status is verified');
-    }
-    if (question.featureTags?.includes('past_questions')) {
-      if (!question.source.title) {
-        errors.push('Source title is required for past questions');
-      }
-      if (!question.source.year) {
-        errors.push('Year is required for past questions');
-      }
-    }
-  } else {
-    errors.push('Source information is required');
+    errors.push('কমপক্ষে একটি ফিচার ট্যাগ প্রয়োজন');
   }
 
   return errors;
@@ -442,7 +667,6 @@ export function parseBengaliTypedMcq(blockText: string): BengaliMcqParsed | null
       continue;
     }
 
-    // Option matching
     const mKa = line.match(/^(?:ক[)\.]|A[)\.])\s*(.*)$/);
     if (mKa) { option_ka = mKa[1].trim(); continue; }
 
@@ -463,7 +687,6 @@ export function parseBengaliTypedMcq(blockText: string): BengaliMcqParsed | null
       continue;
     }
 
-    // Question number stem
     const qNumMatch = line.match(/^(?:[০-৯0-9]+\s*[\.\)]\s*)(.*)$/);
     if (qNumMatch && !questionStem) {
       questionStem = qNumMatch[1].trim();
@@ -478,7 +701,6 @@ export function parseBengaliTypedMcq(blockText: string): BengaliMcqParsed | null
     }
   }
 
-  // Strict check: must have options ka, kha, ga, gha and correct line
   if (!option_ka || !option_kha || !option_ga || !option_gha || !correct) {
     return null;
   }
@@ -504,7 +726,6 @@ export function parseBengaliTypedBatch(rawBatchText: string): BengaliBatchParseR
     return { addedCount: 0, skippedIndices: [], items: [] };
   }
 
-  // Split blocks by empty line or question number start e.g. "১. " or "2. "
   const blocks = rawBatchText
     .split(/(?=\n\s*(?:[০-৯0-9]+\s*[\.\)]))/g)
     .map(b => b.trim())
@@ -528,3 +749,4 @@ export function parseBengaliTypedBatch(rawBatchText: string): BengaliBatchParseR
     items
   };
 }
+

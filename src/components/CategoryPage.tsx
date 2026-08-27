@@ -56,11 +56,13 @@ export default function CategoryPage({ category, syllabus, onSelectSubject, onBa
   const filteredSubjects = syllabus.filter(subject => {
     const rawCategory = subject.category || 'অন্যান্য';
     
-    if (category === 'academic') {
-      return rawCategory === 'একাডেমিক প্রস্তুতি' || rawCategory === 'অনুশীলনী';
-    }
-    if (category === 'board') {
-      return rawCategory.includes('বোর্ড');
+    if (category === 'academic' || category === 'board') {
+      return (
+        rawCategory === 'একাডেমিক প্রস্তুতি' ||
+        rawCategory === 'অনুশীলনী' ||
+        rawCategory.includes('বোর্ড') ||
+        ['bio1', 'bio2', 'math1', 'math2', 'chem1', 'chem2', 'phys1', 'phys2', 'ict', 'bangla_first'].includes(subject.id)
+      );
     }
     if (category === 'medical') {
       return rawCategory.includes('মেডিকেল');
@@ -93,14 +95,14 @@ export default function CategoryPage({ category, syllabus, onSelectSubject, onBa
             <GraduationCap className="w-6 h-6 text-emerald-400" />
           </div>
           <div className="bg-slate-800/80 px-3 py-1.5 rounded-full text-xs font-semibold text-slate-300 border border-slate-700/30">
-            {subject.chapters.length} Papers / Levels
+            {subject.chapters.length}টি অধ্যায়
           </div>
         </div>
         <h3 className="text-xl font-extrabold text-white mb-2 group-hover:text-emerald-400 transition-colors leading-tight">
           {subject.name}
         </h3>
         <p className="text-slate-400 text-sm leading-relaxed">
-          {subject.chapters.length}টি স্পেশাল লেভেলে সম্পূর্ণ MCQ পরীক্ষার সমৃদ্ধ আয়োজন।
+          {subject.chapters.length}টি অধ্যায়ে সম্পূর্ণ MCQ অনুশীলন ও প্রস্তুতি।
         </p>
       </button>
     );

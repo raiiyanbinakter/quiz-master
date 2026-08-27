@@ -53,14 +53,20 @@ export default function MedicalModelTests({
         where('route', '==', 'medical'),
         where('status', '==', 'published')
       );
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as MedicalModelTestBlueprint[];
-        if (docs.length > 0) {
-          // Filter out blueprints that have no questions
-          const validBlueprints = docs.filter(b => b.questionIds && b.questionIds.length > 0);
-          setBlueprints(validBlueprints);
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as MedicalModelTestBlueprint[];
+          if (docs.length > 0) {
+            // Filter out blueprints that have no questions
+            const validBlueprints = docs.filter(b => b.questionIds && b.questionIds.length > 0);
+            setBlueprints(validBlueprints);
+          }
+        },
+        (error) => {
+          console.warn('Model test blueprints listener error:', error);
         }
-      });
+      );
       return unsubscribe;
     } catch (e) {
       console.error('Error fetching model test blueprints:', e);

@@ -87,20 +87,41 @@ export default function DoubtArena({
 
   useEffect(() => {
     const q = query(collection(db, 'doubts'), orderBy('timestamp', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const dbts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setDoubts(dbts);
-      setLoading(false);
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const dbts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setDoubts(dbts);
+        setLoading(false);
+      },
+      (error) => {
+        console.warn('Doubts snapshot error:', error);
+        setLoading(false);
+      }
+    );
     return unsubscribe;
   }, []);
 
   useEffect(() => {
     if (view === 'detail' && selectedDoubtId && selectedDoubt?.type === 'doubt') {
-      const q = query(collection(db, `doubts/${selectedDoubtId}/answers`), orderBy('upvotes', 'desc'), orderBy('timestamp', 'asc'));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        setAnswers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      });
+      const q = collection(db, `doubts/${selectedDoubtId}/answers`);
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          const rawAnswers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          rawAnswers.sort((a: any, b: any) => {
+            const upDiff = (b.upvotes || 0) - (a.upvotes || 0);
+            if (upDiff !== 0) return upDiff;
+            const aTime = a.timestamp?.toMillis ? a.timestamp.toMillis() : (a.timestamp?.seconds ? a.timestamp.seconds * 1000 : 0);
+            const bTime = b.timestamp?.toMillis ? b.timestamp.toMillis() : (b.timestamp?.seconds ? b.timestamp.seconds * 1000 : 0);
+            return aTime - bTime;
+          });
+          setAnswers(rawAnswers);
+        },
+        (error) => {
+          console.warn('Answers snapshot error:', error);
+        }
+      );
       return unsubscribe;
     }
   }, [view, selectedDoubtId, selectedDoubt?.type]);

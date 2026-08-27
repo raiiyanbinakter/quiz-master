@@ -1,13 +1,26 @@
+import { QuestionMediaItem, QuestionMediaPlacement, QuestionMedia } from './types/questionBank';
+
 export * from './types/gamification';
+export type { QuestionMediaPlacement, QuestionMedia, QuestionMediaItem };
 
 export interface Question {
   id: number;
   topic?: string;
+  topicId?: string;
+  topicName?: string;
   question_text: string;
   options: string[];
   correct_answer: string;
   explanation: string;
   time_limit?: number;
+  image?: string;
+  media?: any[];
+  hasImage?: boolean;
+  altText?: string;
+  stimulus?: string;
+  hints?: string[];
+  author?: string;
+  ref?: string;
 }
 
 export interface ChapterData {
@@ -24,6 +37,14 @@ export interface Subject {
   chapters: string[];
   activeChapters: number[]; // Indices of chapters that are available
   category?: string;
+  paper?: 'first' | 'second' | 'not_applicable';
+  hasSections?: boolean;
+  sections?: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    chapterRange: { start: number; end: number };
+  }>;
 }
 
 export interface QuizResult {
@@ -36,6 +57,7 @@ export interface QuizResult {
   isCorrect: boolean;
   isSkipped: boolean;
   topic?: string;
+  media?: QuestionMediaItem[];
 }
 
 export interface QuizSummary {

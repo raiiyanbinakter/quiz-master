@@ -8,7 +8,7 @@ export const uiCopy = {
     leaderboard: "সাপ্তাহিক র্যাঙ্কিং",
     shop: "প্রোফাইল সাজান",
     profile: "প্রোফাইল",
-    admin: "এডমিন ড্যাশবোর্ড",
+    admin: "Admin Dashboard",
     upgradeToPro: "প্রিমিয়াম সুবিধা 👑",
     logout: "লগআউট",
     login: "লগইন",

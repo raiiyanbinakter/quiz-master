@@ -1,12 +1,18 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Clock, CheckCircle2, XCircle, Info, ArrowRight, ArrowLeft, Flag, 
-  HelpCircle, Grid, Bookmark, RotateCcw, AlertTriangle, Lightbulb, ZoomIn, X, Lock
+  HelpCircle, Grid, Bookmark, RotateCcw, AlertTriangle, Lightbulb, ZoomIn, X, Lock, FileText,
+  Image as ImageIcon
 } from 'lucide-react';
 import { Question, QuizResult } from '../types';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { MathText } from './MathText';
+import { 
+  fetchQuestionMediaOverrides, 
+  resolveQuestionMediaState, 
+  cleanStudentFacingText 
+} from '../lib/questionMediaOverrides';
 
 interface QuizProps {
   questions: Question[];
@@ -54,6 +60,15 @@ export default function Quiz({
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showQuestionNav, setShowQuestionNav] = useState(false);
   const [zoomImage, setZoomImage] = useState<string | null>(null);
+  const [overridesMap, setOverridesMap] = useState<Record<string, any>>({});
+
+  useEffect(() => {
+    fetchQuestionMediaOverrides()
+      .then((data) => {
+        if (data) setOverridesMap(data);
+      })
+      .catch((err) => console.warn('Could not load question media overrides in Quiz', err));
+  }, []);
 
   // Exam mode state
   const calculateExamTime = useCallback(() => {
@@ -118,6 +133,7 @@ export default function Quiz({
 
   const recordQuizResult = useCallback((option: string | null, isCorrect: boolean, isSkipped: boolean) => {
     if (!currentQuestion) return;
+    const media = resolveQuestionMediaState(currentQuestion, overridesMap).mediaList;
     setQuizResults(prev => [
       ...prev,
       {
@@ -129,10 +145,11 @@ export default function Quiz({
         explanation: currentQuestion.explanation || '',
         isCorrect,
         isSkipped,
-        topic: currentQuestion.topic
+        topic: currentQuestion.topic,
+        media
       }
     ]);
-  }, [currentQuestion]);
+  }, [currentQuestion, overridesMap]);
 
   const handleQuizTimeOut = useCallback(() => {
     setIsAnswered(true);
@@ -145,6 +162,7 @@ export default function Quiz({
       const selected = examAnswers[idx] || null;
       const isCorrect = selected === q.correct_answer;
       const isSkipped = selected === null;
+      const media = resolveQuestionMediaState(q, overridesMap).mediaList;
       return {
         questionId: q.id ?? idx + 1,
         questionText: q.question_text || '',
@@ -154,15 +172,20 @@ export default function Quiz({
         explanation: q.explanation || '',
         isCorrect,
         isSkipped,
-        topic: q.topic
+        topic: q.topic,
+        media
       };
     }).filter(Boolean);
     onComplete(finalResults);
-  }, [questions, examAnswers, onComplete]);
+  }, [questions, examAnswers, onComplete, overridesMap]);
 
   // Timers
   useEffect(() => {
     if (mode === 'quiz') {
+      if (examTimeLimitMinutes === 0) {
+        // Untimed practice mode: no per-question timer
+        return;
+      }
       if (!isAnswered && quizTimeLeft > 0) {
         const timer = setInterval(() => setQuizTimeLeft(prev => prev - 1), 1000);
         return () => clearInterval(timer);
@@ -315,7 +338,24 @@ export default function Quiz({
     }
   };
 
-  if (!currentQuestion) return null;
+  if (!questions || questions.length === 0 || !currentQuestion) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center p-4">
+        <div className="bg-slate-800 border border-slate-700 rounded-3xl p-8 max-w-md w-full text-center space-y-4 shadow-2xl">
+          <div className="w-16 h-16 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-2xl flex items-center justify-center mx-auto">
+            <AlertTriangle className="w-8 h-8" />
+          </div>
+          <h2 className="text-lg font-bold text-white">এই প্রশ্ন সেটে কোনো প্রকাশিত প্রশ্ন পাওয়া যায়নি।</h2>
+          <button
+            onClick={onBack}
+            className="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl text-xs transition-all cursor-pointer"
+          >
+            ফিরে যান
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Format timer
   const formatTime = (seconds: number) => {
@@ -327,9 +367,11 @@ export default function Quiz({
   const isQuizTimeWarning = mode === 'quiz' && quizTimeLeft <= 5;
   const isExamTimeWarning = mode === 'exam' && examTimeLeft <= (initialExamTime * 0.2);
 
+  const mediaState = resolveQuestionMediaState(currentQuestion, overridesMap);
+
   // Clean Question Title & Extract Source
-  let cleanQuestionText = currentQuestion.question_text || '';
-  let extractedSource = (currentQuestion as any).source || '';
+  let cleanQuestionText = mediaState.cleanStem || currentQuestion.question_text || '';
+  let extractedSource = (currentQuestion as any).source || (currentQuestion as any).ref || (currentQuestion as any).author || '';
   if (!extractedSource) {
     const sourceMatch = cleanQuestionText.match(/[\(\[]\s*(?:সূত্র|Source):\s*([^\]\)]+)[\)\]]/i);
     if (sourceMatch) {
@@ -337,6 +379,7 @@ export default function Quiz({
       cleanQuestionText = cleanQuestionText.replace(/[\(\[]\s*(?:সূত্র|Source):\s*([^\]\)]+)[\)\]]/i, '').trim();
     }
   }
+  cleanQuestionText = cleanStudentFacingText(cleanQuestionText);
 
   const quizCardRef = useRef<HTMLDivElement>(null);
 
@@ -498,6 +541,16 @@ export default function Quiz({
             </div>
           </div>
 
+          {/* Stimulus / Uddipak if present */}
+          {(currentQuestion as any)?.stimulus && (
+            <div className="mb-4 p-3.5 sm:p-4 rounded-2xl bg-purple-950/30 border border-purple-800/40 text-slate-200 text-sm sm:text-base">
+              <div className="font-bold text-purple-400 text-xs uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5" /> উদ্দীপক
+              </div>
+              <MathText text={(currentQuestion as any).stimulus} />
+            </div>
+          )}
+
           {/* Question Text */}
           <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-slate-100 leading-relaxed mb-3">
             <MathText text={cleanQuestionText} />
@@ -513,23 +566,51 @@ export default function Quiz({
             </p>
           )}
 
-          {/* Image formula preview if present */}
-          {(currentQuestion as any).image && (
-            <div className="mb-4 relative rounded-xl overflow-hidden border border-slate-700 bg-slate-900 group max-w-sm mx-auto">
-              <img
-                src={(currentQuestion as any).image}
-                alt="Question diagram"
-                className="w-full h-auto max-h-56 object-contain"
-              />
-              <button
-                onClick={() => setZoomImage((currentQuestion as any).image)}
-                className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 text-white hover:bg-black transition-colors cursor-pointer"
-                title="Zoom image"
-              >
-                <ZoomIn className="w-4 h-4" />
-              </button>
+          {/* Image diagram preview if present / overridden */}
+          {Boolean(mediaState.imageUrl) ? (
+            <div className="mb-4 bg-slate-900/90 border border-slate-700/80 rounded-2xl p-3 max-w-md mx-auto space-y-2">
+              <div className="relative rounded-xl overflow-hidden bg-slate-950/80 flex items-center justify-center min-h-[120px] max-h-64">
+                <img
+                  src={mediaState.imageUrl}
+                  alt={mediaState.altText || 'Question diagram'}
+                  className="w-full h-auto max-h-60 object-contain rounded-lg"
+                  loading="lazy"
+                  onError={(e) => {
+                    (e.target as HTMLElement).style.display = 'none';
+                    const parent = (e.target as HTMLElement).parentElement;
+                    if (parent) {
+                      const errorDiv = document.createElement('div');
+                      errorDiv.className = 'text-xs text-slate-400 p-4 text-center';
+                      errorDiv.innerText = 'চিত্রটি লোড করা সম্ভব হয়নি';
+                      parent.appendChild(errorDiv);
+                    }
+                  }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <span className="text-[11px] text-slate-400 italic truncate max-w-[220px]">
+                  {mediaState.altText || 'চিত্র / ডায়াগ্রাম'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (mediaState.imageUrl) setZoomImage(mediaState.imageUrl);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-semibold rounded-lg border border-slate-700 transition-colors cursor-pointer shrink-0"
+                >
+                  <ZoomIn className="w-3.5 h-3.5" />
+                  <span>চিত্র বড় করে দেখুন</span>
+                </button>
+              </div>
             </div>
-          )}
+          ) : (mediaState.needsImage || mediaState.hasPlaceholder) ? (
+            /* Student View Placeholder Rule: Display clean notice when question requires an image but no image is uploaded */
+            <div className="mb-4 bg-amber-500/10 border border-amber-500/20 text-amber-300 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 max-w-md mx-auto">
+              <ImageIcon className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>এই প্রশ্নের চিত্র যুক্ত করা হচ্ছে।</span>
+            </div>
+          ) : null}
 
           {/* Hint button (Practice mode only) */}
           {mode === 'quiz' && !isAnswered && (currentQuestion as any).hint && (
@@ -555,6 +636,9 @@ export default function Quiz({
           <div className="space-y-2.5">
             {currentQuestion.options.map((option, idx) => {
               const badge = OPTION_BADGES[idx] || (idx + 1).toString();
+              const optMedia = mediaState.getOptionMedia(idx) || mediaState.getOptionMedia(badge);
+              const cleanedText = mediaState.cleanOptionText(option);
+              const hasOnlyImage = Boolean(optMedia?.url) && (!cleanedText || cleanedText.trim() === '');
 
               let baseStyle = "bg-slate-900/80 border-slate-700/80 hover:bg-slate-800 hover:border-cyan-500/50 text-slate-200";
               let badgeStyle = "bg-slate-800 text-slate-300 border-slate-700";
@@ -591,17 +675,44 @@ export default function Quiz({
                   key={idx}
                   disabled={isOptionDisabled}
                   onClick={() => handleOptionSelect(option)}
-                  className={`w-full min-h-[48px] flex items-center justify-between p-3.5 sm:p-4 rounded-xl border-2 transition-all duration-150 text-left text-sm sm:text-base font-medium focus:outline-none focus:ring-2 focus:ring-cyan-400/50 ${
+                  className={`w-full min-h-[52px] flex items-start justify-between p-3.5 sm:p-4 rounded-xl border-2 transition-all duration-150 text-left text-sm sm:text-base font-medium focus:outline-none focus:ring-2 focus:ring-cyan-400/50 ${
                     isOptionDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
                   } ${baseStyle}`}
                 >
-                  <div className="flex items-center gap-3">
-                    <span className={`w-7 h-7 shrink-0 rounded-lg flex items-center justify-center text-xs font-bold border transition-colors ${badgeStyle}`}>
+                  <div className="flex items-start gap-3 w-full">
+                    <span className={`w-7 h-7 shrink-0 rounded-lg flex items-center justify-center text-xs font-bold border transition-colors mt-0.5 ${badgeStyle}`}>
                       {badge}
                     </span>
-                    <span className="leading-snug"><MathText text={option} /></span>
+                    <div className="flex-1 space-y-2">
+                      {optMedia?.url && (
+                        <div className="rounded-lg overflow-hidden bg-slate-950/80 border border-slate-700/60 p-1.5 max-w-xs relative group">
+                          <img
+                            src={optMedia.url}
+                            alt={optMedia.altText || `Option ${badge} diagram`}
+                            className="w-full h-auto max-h-36 object-contain rounded"
+                            loading="lazy"
+                          />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (optMedia.url) setZoomImage(optMedia.url);
+                            }}
+                            className="absolute top-2 right-2 p-1 bg-slate-900/90 hover:bg-slate-800 text-cyan-300 rounded opacity-0 group-hover:opacity-100 transition-opacity border border-slate-700"
+                            title="বড় করে দেখুন"
+                          >
+                            <ZoomIn className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                      {!hasOnlyImage && cleanedText && (
+                        <div className="leading-snug">
+                          <MathText text={cleanedText} />
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  {IconComponent && <IconComponent className="w-5 h-5 shrink-0 ml-2" />}
+                  {IconComponent && <IconComponent className="w-5 h-5 shrink-0 ml-2 mt-1" />}
                 </button>
               );
             })}
@@ -646,9 +757,36 @@ export default function Quiz({
                 )}
 
                 {currentQuestion.explanation && (
-                  <div className="pt-2 border-t border-slate-700/50 text-xs sm:text-sm text-slate-300 leading-relaxed">
+                  <div className="pt-2 border-t border-slate-700/50 text-xs sm:text-sm text-slate-300 leading-relaxed space-y-2">
                     <span className="font-bold text-slate-200 block mb-1">ব্যাখ্যা (Explanation):</span>
-                    <MathText text={currentQuestion.explanation} />
+                    <MathText text={cleanStudentFacingText(currentQuestion.explanation)} />
+                    {mediaState.explanationMedia?.url && (
+                      <div className="mt-2 bg-slate-900/90 border border-slate-700/80 rounded-xl p-2.5 max-w-sm space-y-1.5">
+                        <div className="relative rounded-lg overflow-hidden bg-slate-950/80 flex items-center justify-center max-h-48">
+                          <img
+                            src={mediaState.explanationMedia.url}
+                            alt={mediaState.explanationMedia.altText || 'ব্যাখ্যার চিত্র'}
+                            className="w-full h-auto max-h-44 object-contain rounded"
+                            loading="lazy"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between gap-2 pt-0.5">
+                          <span className="text-[10px] text-slate-400 italic truncate">
+                            {mediaState.explanationMedia.altText || 'ব্যাখ্যার চিত্র'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (mediaState.explanationMedia?.url) setZoomImage(mediaState.explanationMedia.url);
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-semibold rounded border border-slate-700 transition-colors cursor-pointer shrink-0"
+                          >
+                            <ZoomIn className="w-3 h-3" />
+                            <span>বড় করে দেখুন</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

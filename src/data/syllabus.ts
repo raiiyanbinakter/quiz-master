@@ -1,111 +1,42 @@
 import { Subject } from '../types';
+import { ACADEMIC_SYLLABUS_CONFIG } from './academicSyllabusConfig';
+
+const toBangla2Digit = (n: number): string => {
+  const bnDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+  const padded = n < 10 ? `0${n}` : `${n}`;
+  return padded.split('').map(d => bnDigits[parseInt(d, 10)] ?? d).join('');
+};
+
+// Generate Academic subjects dynamically from the single shared source ACADEMIC_SYLLABUS_CONFIG
+const academicSubjects: Subject[] = ACADEMIC_SYLLABUS_CONFIG.map(cfg => {
+  let defaultActiveChapters: number[] = [];
+  if (cfg.id === 'phys1') defaultActiveChapters = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+  else if (cfg.id === 'bio1') defaultActiveChapters = [0, 6, 7];
+  else if (cfg.id === 'bio2') defaultActiveChapters = [0];
+  else if (cfg.id === 'chem1') defaultActiveChapters = [1, 2, 3];
+  else if (cfg.id === 'math1') defaultActiveChapters = [8];
+  else if (cfg.id === 'ict') defaultActiveChapters = [0, 1, 2, 3, 4, 5];
+  else if (cfg.id === 'bangla_first') defaultActiveChapters = Array.from({ length: 26 }, (_, i) => i);
+
+  return {
+    id: cfg.id,
+    name: cfg.name,
+    icon: cfg.icon,
+    color: cfg.color,
+    category: cfg.category,
+    paper: cfg.paper,
+    hasSections: cfg.hasSections,
+    sections: cfg.sections,
+    chapters: cfg.chapters.map(ch => `${toBangla2Digit(ch.chapterNumber)}. ${ch.chapterName}`),
+    activeChapters: defaultActiveChapters
+  };
+});
 
 export const syllabus: Subject[] = [
-  // Academic Preparation
-  {
-    id: 'bio1',
-    name: 'জীববিজ্ঞান ১ম পত্র',
-    icon: 'Dna',
-    color: 'from-teal-900/50 to-slate-800',
-    category: 'একাডেমিক প্রস্তুতি',
-    chapters: [
-      '১. কোষ ও এর গঠন', '২. কোষ বিভাজন', '৩. কোষ রসায়ন', '৪. অণুজীব',
-      '৫. শৈবাল ও ছত্রাক', '৬. ব্রায়োফাইটা ও টেরাইডোফাইটা', '৭. নগ্নবীজী ও আবৃতবীজী উদ্ভিদ',
-      '৮. টিস্যু ও টিস্যুতন্ত্র', '৯. উদ্ভিদ শারীরতত্ত্ব', '১০. উদ্ভিদ প্রজনন',
-      '১১. জীবপ্রযুক্তি', '১২. জীবের পরিবেশ, বিস্তার ও সংরক্ষণ'
-    ],
-    activeChapters: [0, 6]
-  },
-  {
-    id: 'bio2',
-    name: 'জীববিজ্ঞান ২য় পত্র',
-    icon: 'Microscope',
-    color: 'from-emerald-900/50 to-slate-800',
-    category: 'একাডেমিক প্রস্তুতি',
-    chapters: [
-      '১. প্রাণীর বিভিন্নতা ও শ্রেণিবিন্যাস', '২. প্রাণীর পরিচিতি', '৩. মানব শারীরতত্ত্ব: পরিপাক ও শোষণ',
-      '৪. মানব শারীরতত্ত্ব: রক্ত ও সংবহন', '৫. মানব শারীরতত্ত্ব: শ্বসন ও শ্বাসক্রিয়া', '৬. মানব শারীরতত্ত্ব: বর্জ্য ও নিষ্কাশন',
-      '৭. মানব শারীরতত্ত্ব: চলন ও অঙ্গচালনা', '৮. মানব শারীরতত্ত্ব: সমন্বয় ও নিয়ন্ত্রণ', '৯. মানব জীবনের ধারাবাহিকতা',
-      '১০. মানবদেহের প্রতিরক্ষা', '১১. জিনতত্ত্ব ও বিবর্তন', '১২. প্রাণীর আচরণ'
-    ],
-    activeChapters: [0]
-  },
-  {
-    id: 'math1',
-    name: 'উচ্চতর গণিত ১ম পত্র',
-    icon: 'Ruler',
-    color: 'from-indigo-900/50 to-slate-800',
-    category: 'একাডেমিক প্রস্তুতি',
-    chapters: [
-      '১. ম্যাট্রিক্স ও নির্ণায়ক', '২. ভেক্টর', '৩. সরলরেখা', '৪. বৃত্ত',
-      '৫. বিন্যাস ও সমাবেশ', '৬. ত্রিকোণমিতিক অনুপাত', '৭. সংযুক্ত কোণের ত্রিকোণমিতিক অনুপাত',
-      '৮. ফাংশন ও ফাংশনের লেখচিত্র', '৯. অন্তরীকরণ', '১০. যোগজীকরণ'
-    ],
-    activeChapters: [8]
-  },
-  {
-    id: 'math2',
-    name: 'উচ্চতর গণিত ২য় পত্র',
-    icon: 'Calculator',
-    color: 'from-blue-900/50 to-slate-800',
-    category: 'একাডেমিক প্রস্তুতি',
-    chapters: [
-      '১. বাস্তব সংখ্যা ও অসমতা', '২. যোগাশ্রয়ী প্রোগ্রাম', '৩. জটিল সংখ্যা', '৪. বহুপদী ও বহুপদী সমীকরণ',
-      '৫. দ্বিপদী বিস্তৃতি', '৬. কণিক', '৭. বিপরীত ত্রিকোণমিতিক ফাংশন ও ত্রিকোণমিতিক সমীকরণ',
-      '৮. স্থিতিবিদ্যা', '৯. সমতলে বস্তুকণার গতি', '১০. বিস্তার পরিমাপ ও সম্ভাবনা'
-    ],
-    activeChapters: []
-  },
-  {
-    id: 'chem1',
-    name: 'রসায়ন ১ম পত্র',
-    icon: 'FlaskConical',
-    color: 'from-purple-900/50 to-slate-800',
-    category: 'একাডেমিক প্রস্তুতি',
-    chapters: [
-      '১. ল্যাবরেটরির নিরাপদ ব্যবহার', '২. গুণগত রসায়ন', '৩. মৌলের পর্যায়বৃত্ত ধর্ম ও রাসায়নিক বন্ধন',
-      '৪. রাসায়নিক পরিবর্তন', '৫. কর্মমুখী রসায়ন'
-    ],
-    activeChapters: [1]
-  },
-  {
-    id: 'chem2',
-    name: 'রসায়ন ২য় পত্র',
-    icon: 'Beaker',
-    color: 'from-fuchsia-900/50 to-slate-800',
-    category: 'একাডেমিক প্রস্তুতি',
-    chapters: [
-      '১. পরিবেশ রসায়ন', '২. জৈব রসায়ন', '৩. পরিমাণগত রসায়ন', '৪. তড়িৎ রসায়ন', '৫. অর্থনৈতিক রসায়ন'
-    ],
-    activeChapters: []
-  },
-  {
-    id: 'phys1',
-    name: 'পদার্থবিজ্ঞান ১ম পত্র',
-    icon: 'Atom',
-    color: 'from-sky-900/50 to-slate-800',
-    category: 'একাডেমিক প্রস্তুতি',
-    chapters: [
-      '১. ভৌতজগৎ ও পরিমাপ', '২. ভেক্টর', '৩. গতিবিদ্যা', '৪. নিউটনীয় বলবিদ্যা',
-      '৫. কাজ, শক্তি ও ক্ষমতা', '৬. মহাকর্ষ ও অভিকর্ষ', '৭. পদার্থের গাঠনিক ধর্ম',
-      '৮. পর্যাবৃত্তিক গতি', '৯. তরঙ্গ', '১০. আদর্শ গ্যাস ও গ্যাসের গতিতত্ত্ব'
-    ],
-    activeChapters: [1, 3, 5]
-  },
-  {
-    id: 'phys2',
-    name: 'পদার্থবিজ্ঞান ২য় পত্র',
-    icon: 'Zap',
-    color: 'from-cyan-900/50 to-slate-800',
-    category: 'একাডেমিক প্রস্তুতি',
-    chapters: [
-      '১. তাপগতিবিদ্যা', '২. স্থির তড়িৎ', '৩. চল তড়িৎ', '৪. তড়িৎ প্রবাহের চৌম্বক ক্রিয়া ও চুম্বকত্ব',
-      '৫. তাড়িতচৌম্বকীয় আবেশ ও পরিবর্তী প্রবাহ', '৬. জ্যামিতিক আলোকবিজ্ঞান', '৭. ভৌত আলোকবিজ্ঞান',
-      '৮. আধুনিক পদার্থবিজ্ঞানের সূচনা', '৯. পরমাণু মডেল এবং নিউক্লিয়ার পদার্থবিজ্ঞান',
-      '১০. সেমিকন্ডাক্টর ও ইলেকট্রনিক্স', '১১. জ্যোতির্বিজ্ঞান'
-    ],
-    activeChapters: []
-  },
+  // Academic Preparation Subjects (from academicSyllabusConfig)
+  ...academicSubjects,
+
+  // Medical Subjects
   {
     id: 'english',
     name: 'ইংরেজি',
